@@ -205,6 +205,52 @@ const aspect = innerWidth / innerHeight
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x1a1a1a)
 
+function makeCobblestoneTexture(): THREE.CanvasTexture {
+  const size = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+
+  ctx.fillStyle = '#3d3530'
+  ctx.fillRect(0, 0, size, size)
+
+  const tileBase = 32
+  const jitter = 6
+  const seed = (x: number, y: number) => (Math.sin(x * 374.3 + y * 91.7) * 43758.5453) % 1
+  const pseudoRandom = (x: number, y: number) => {
+    const v = seed(x, y) - Math.floor(seed(x, y))
+    return Math.abs(v)
+  }
+
+  for (let row = 0; row < size / tileBase + 1; row++) {
+    const rowOffset = (row % 2) * (tileBase / 2)
+    for (let col = -1; col < size / tileBase + 1; col++) {
+      const px = col * tileBase + rowOffset
+      const py = row * tileBase
+      const w = tileBase - 2 - Math.floor(pseudoRandom(col, row) * jitter)
+      const h = tileBase - 2 - Math.floor(pseudoRandom(col + 31, row + 17) * jitter)
+      const gray = 90 + Math.floor(pseudoRandom(col + 7, row + 41) * 50)
+      const r = gray + 15
+      const g = gray + 8
+      const b = gray
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
+      ctx.fillRect(px + 1, py + 1, w, h)
+      ctx.fillStyle = `rgba(255, 240, 220, ${0.05 + pseudoRandom(col + 100, row) * 0.05})`
+      ctx.fillRect(px + 1, py + 1, w, 2)
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
+  tex.repeat.set(3, 3)
+  tex.magFilter = THREE.LinearFilter
+  tex.minFilter = THREE.LinearMipmapLinearFilter
+  return tex
+}
+
 const camera = new THREE.OrthographicCamera(
   (frustumSize * aspect) / -2,
   (frustumSize * aspect) / 2,
@@ -223,7 +269,7 @@ document.body.appendChild(renderer.domElement)
 
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(10, 10),
-  new THREE.MeshStandardMaterial({ color: 0x6b4a2a }),
+  new THREE.MeshStandardMaterial({ map: makeCobblestoneTexture() }),
 )
 floor.rotation.x = -Math.PI / 2
 scene.add(floor)
@@ -272,22 +318,10 @@ Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2)
 const agents: Agent[] = []
 agents.push(new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0), 'main'))
 agents.push(
-  new Agent(
-    scene,
-    '/assets/sprites/body_male_walk.png',
-    new THREE.Vector3(-1.5, 1, 1.5),
-    'sub-1',
-    new THREE.Color(0.85, 0.85, 1.0),
-  ),
+  new Agent(scene, '/assets/sprites/body_female_walk.png', new THREE.Vector3(-1.5, 1, 1.5), 'sub-1'),
 )
 agents.push(
-  new Agent(
-    scene,
-    '/assets/sprites/body_male_walk.png',
-    new THREE.Vector3(1.5, 1, -1.5),
-    'sub-2',
-    new THREE.Color(1.0, 0.85, 0.85),
-  ),
+  new Agent(scene, '/assets/sprites/body_muscular_walk.png', new THREE.Vector3(1.5, 1, -1.5), 'sub-2'),
 )
 
 function dispatch(event: AgentEvent) {

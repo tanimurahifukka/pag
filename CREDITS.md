@@ -6,7 +6,7 @@
 
 すべて [LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator](https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator) リポジトリ（master ブランチ）から取得。
 
-### Body — Male
+### Body — Male / Female / Muscular
 
 | ファイル | 元ファイル名 |
 | --- | --- |
@@ -14,6 +14,10 @@
 | `public/assets/sprites/body_male_idle.png` | `spritesheets/body/bodies/male/idle.png` |
 | `public/assets/sprites/body_male_combat_idle.png` | `spritesheets/body/bodies/male/combat_idle.png` |
 | `public/assets/sprites/body_male_slash.png` | `spritesheets/body/bodies/male/slash.png` |
+| `public/assets/sprites/body_female_walk.png` | `spritesheets/body/bodies/female/walk.png` |
+| `public/assets/sprites/body_female_slash.png` | `spritesheets/body/bodies/female/slash.png` |
+| `public/assets/sprites/body_muscular_walk.png` | `spritesheets/body/bodies/muscular/walk.png` |
+| `public/assets/sprites/body_muscular_slash.png` | `spritesheets/body/bodies/muscular/slash.png` |
 
 - **Authors**: bluecarrot16, JaidynReiman, Benjamin K. Smith (BenCreating), Evert, Eliza Wyatt (ElizaWy), TheraHedwig, MuffinElZangano, Durrani, Johannes Sjölund (wulax), Stephen Challener (Redshrike)
 - **Licenses**: OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0（複数ライセンスのいずれかで利用可、本プロジェクトでは **CC-BY-SA 3.0** を選択）
