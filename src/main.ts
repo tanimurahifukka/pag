@@ -5,6 +5,7 @@ type AgentEvent =
   | { type: 'goto'; agentId: string; landmark: string }
   | { type: 'goto-xy'; agentId: string; x: number; z: number }
   | { type: 'attack'; agentId: string }
+  | { type: 'show-tool'; agentId: string; toolName: string; durationMs?: number }
   | { type: 'idle'; agentId: string; durationMs?: number }
   | { type: 'spawn'; agentId: string; tint?: [number, number, number] }
   | { type: 'remove'; agentId: string }
@@ -44,6 +45,10 @@ class Agent {
   labelSprite: THREE.Sprite
   labelTex: THREE.CanvasTexture
   labelCanvas: HTMLCanvasElement
+  bubbleSprite: THREE.Sprite
+  bubbleTex: THREE.CanvasTexture
+  bubbleCanvas: HTMLCanvasElement
+  bubbleHideAt = 0
   currentIntent = 'idle'
   state: 'idle' | 'walking' | 'attacking' = 'idle'
   prevState: 'idle' | 'walking' = 'idle'
@@ -137,6 +142,25 @@ class Agent {
     this.sprite.add(this.labelSprite)
     this.updateLabel('idle')
 
+    this.bubbleCanvas = document.createElement('canvas')
+    this.bubbleCanvas.width = 256
+    this.bubbleCanvas.height = 80
+    this.bubbleTex = new THREE.CanvasTexture(this.bubbleCanvas)
+    this.bubbleTex.colorSpace = THREE.SRGBColorSpace
+    this.bubbleTex.minFilter = THREE.LinearFilter
+    this.bubbleTex.magFilter = THREE.LinearFilter
+    const bubbleMat = new THREE.SpriteMaterial({
+      map: this.bubbleTex,
+      transparent: true,
+      depthTest: false,
+    })
+    this.bubbleSprite = new THREE.Sprite(bubbleMat)
+    this.bubbleSprite.scale.set(2.0, 0.625, 1)
+    this.bubbleSprite.position.set(0, 1.7, 0)
+    this.bubbleSprite.renderOrder = 11
+    this.bubbleSprite.visible = false
+    this.sprite.add(this.bubbleSprite)
+
     if (options?.slashUrl) {
       const slashLoader = new THREE.TextureLoader()
       this.slashTex = slashLoader.load(options.slashUrl)
@@ -203,6 +227,45 @@ class Agent {
     this.labelTex.needsUpdate = true
   }
 
+  private drawBubble(text: string) {
+    const ctx = this.bubbleCanvas.getContext('2d')
+    if (!ctx) return
+    const w = this.bubbleCanvas.width
+    const h = this.bubbleCanvas.height
+    ctx.clearRect(0, 0, w, h)
+    const radius = 16
+    ctx.fillStyle = '#fff8e8'
+    ctx.beginPath()
+    ctx.moveTo(radius, 4)
+    ctx.lineTo(w - radius, 4)
+    ctx.quadraticCurveTo(w - 4, 4, w - 4, radius)
+    ctx.lineTo(w - 4, h - 24)
+    ctx.quadraticCurveTo(w - 4, h - 12, w - radius, h - 12)
+    ctx.lineTo(w / 2 + 12, h - 12)
+    ctx.lineTo(w / 2, h - 4)
+    ctx.lineTo(w / 2 - 12, h - 12)
+    ctx.lineTo(radius, h - 12)
+    ctx.quadraticCurveTo(4, h - 12, 4, h - 24)
+    ctx.lineTo(4, radius)
+    ctx.quadraticCurveTo(4, 4, radius, 4)
+    ctx.fill()
+    ctx.strokeStyle = '#3a2e20'
+    ctx.lineWidth = 2
+    ctx.stroke()
+    ctx.fillStyle = '#3a2e20'
+    ctx.font = 'bold 28px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, w / 2, (h - 16) / 2 + 4)
+    this.bubbleTex.needsUpdate = true
+  }
+
+  showTool(toolName: string, durationMs = 1800) {
+    this.drawBubble(toolName)
+    this.bubbleSprite.visible = true
+    this.bubbleHideAt = performance.now() + durationMs
+  }
+
   pickNewTarget() {
     const r = Math.random()
     const fireplaceMark = Agent.landmarks.find((l) => l.name === 'fireplace')
@@ -247,6 +310,11 @@ class Agent {
 
   update(now: number, dtMs: number) {
     const dt = dtMs / 1000
+
+    if (this.bubbleHideAt > 0 && now >= this.bubbleHideAt) {
+      this.bubbleSprite.visible = false
+      this.bubbleHideAt = 0
+    }
 
     if (this.state === 'attacking') {
       this.slashFrameTime += dtMs
@@ -428,6 +496,8 @@ Agent.landmarks.push({ name: 'fireplace', position: new THREE.Vector3(-3, 1, -2)
 Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2) })
 
 const agents: Agent[] = []
+const taskAgents = new Map<string, string>()
+let taskCounter = 0
 agents.push(
   new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0), 'main', {
     sword: {
@@ -505,6 +575,8 @@ function dispatch(event: AgentEvent) {
     target.goto(new THREE.Vector3(event.x, 1, event.z))
   } else if (event.type === 'attack') {
     target.attack()
+  } else if (event.type === 'show-tool') {
+    target.showTool(event.toolName, event.durationMs)
   } else if (event.type === 'idle') {
     if (target.state === 'attacking') return
     target.setIdle(event.durationMs ?? 1000)
@@ -575,6 +647,25 @@ function handleHookEvent(payload: any) {
 
   switch (hookName) {
     case 'PreToolUse': {
+      if (toolName === 'Task') {
+        const useId: string = payload.tool_use_id || `auto-${taskCounter++}`
+        let agentName = taskAgents.get(useId)
+        if (!agentName) {
+          agentName = `task-${useId.slice(-6)}`
+          taskAgents.set(useId, agentName)
+          window.pag.dispatch({
+            type: 'spawn',
+            agentId: agentName,
+            tint: [0.85, 1.0, 0.85],
+          })
+        }
+        window.pag.dispatch({ type: 'show-tool', agentId: agentName, toolName: 'Task' })
+        window.pag.dispatch({ type: 'goto', agentId: agentName, landmark: 'fireplace' })
+        return
+      }
+
+      window.pag.dispatch({ type: 'show-tool', agentId: 'main', toolName })
+
       if (toolName === 'Bash' || toolName === 'Write' || toolName === 'Edit') {
         window.pag.dispatch({ type: 'attack', agentId: 'main' })
       } else if (toolName === 'Read' || toolName === 'Grep' || toolName === 'Glob') {
@@ -582,12 +673,24 @@ function handleHookEvent(payload: any) {
       } else {
         window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'fireplace' })
       }
-      break
+      return
     }
-    case 'PostToolUse':
+    case 'PostToolUse': {
+      if (toolName === 'Task') {
+        const useId: string = payload.tool_use_id || ''
+        const agentName = taskAgents.get(useId)
+        if (agentName) {
+          window.pag.dispatch({ type: 'remove', agentId: agentName })
+          taskAgents.delete(useId)
+        }
+        return
+      }
+      window.pag.dispatch({ type: 'idle', agentId: 'main', durationMs: 1500 })
+      return
+    }
     case 'Stop': {
       window.pag.dispatch({ type: 'idle', agentId: 'main', durationMs: 1500 })
-      break
+      return
     }
     case 'SubagentStop': {
       const sessionId: string = payload.session_id || ''
