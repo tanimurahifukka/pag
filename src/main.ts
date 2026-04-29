@@ -1,6 +1,24 @@
 import * as THREE from 'three'
 import './style.css'
 
+type AgentEvent =
+  | { type: 'goto'; agentId: string; landmark: string }
+  | { type: 'goto-xy'; agentId: string; x: number; z: number }
+  | { type: 'idle'; agentId: string; durationMs?: number }
+  | { type: 'spawn'; agentId: string; tint?: [number, number, number] }
+  | { type: 'remove'; agentId: string }
+
+interface PagApi {
+  dispatch(event: AgentEvent): void
+  list(): string[]
+}
+
+declare global {
+  interface Window {
+    pag: PagApi
+  }
+}
+
 class Agent {
   static WALK_SPEED = 1.5
   static IDLE_MIN = 800
@@ -44,6 +62,18 @@ class Agent {
     this.sprite.scale.set(2, 2, 1)
     this.sprite.position.copy(startPos)
     scene.add(this.sprite)
+  }
+
+  goto(target: THREE.Vector3) {
+    this.target.copy(target)
+    this.state = 'walking'
+    this.walkFrame = 1
+    this.walkFrameTime = 0
+  }
+
+  setIdle(durationMs: number) {
+    this.state = 'idle'
+    this.idleEndTime = performance.now() + durationMs
   }
 
   pickNewTarget() {
@@ -201,6 +231,51 @@ agents.push(
     new THREE.Color(1.0, 0.85, 0.85),
   ),
 )
+
+function dispatch(event: AgentEvent) {
+  if (event.type === 'spawn') {
+    if (agents.some((a) => a.name === event.agentId)) return
+    const tint = event.tint ? new THREE.Color(event.tint[0], event.tint[1], event.tint[2]) : undefined
+    const a = new Agent(
+      scene,
+      '/assets/sprites/body_male_walk.png',
+      new THREE.Vector3(0, 1, 0),
+      event.agentId,
+      tint,
+    )
+    agents.push(a)
+    return
+  }
+
+  if (event.type === 'remove') {
+    const idx = agents.findIndex((a) => a.name === event.agentId)
+    if (idx === -1) return
+    const a = agents[idx]
+    scene.remove(a.sprite)
+    a.bodyTex.dispose()
+    ;(a.sprite.material as THREE.SpriteMaterial).dispose()
+    agents.splice(idx, 1)
+    return
+  }
+
+  const target = agents.find((a) => a.name === event.agentId)
+  if (!target) return
+
+  if (event.type === 'goto') {
+    const lm = Agent.landmarks.find((l) => l.name === event.landmark)
+    if (!lm) return
+    target.goto(lm.position)
+  } else if (event.type === 'goto-xy') {
+    target.goto(new THREE.Vector3(event.x, 1, event.z))
+  } else if (event.type === 'idle') {
+    target.setIdle(event.durationMs ?? 1000)
+  }
+}
+
+window.pag = {
+  dispatch,
+  list: () => agents.map((a) => a.name),
+}
 
 const fireLight = new THREE.PointLight(0xff8c3a, 8, 15)
 fireLight.position.set(-3, 2, -3)
