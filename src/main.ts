@@ -8,17 +8,28 @@ class Agent {
   static WALK_FRAME_DURATION = 120
   static ARRIVAL_THRESHOLD = 0.05
   static FLOOR_HALF = 4
+  static landmarks: { name: string; position: THREE.Vector3 }[] = []
 
+  name: string
   sprite: THREE.Sprite
   bodyTex: THREE.Texture
   state: 'idle' | 'walking' = 'idle'
-  target = new THREE.Vector3(0, 1, 0)
+  target: THREE.Vector3
   direction: 0 | 1 | 2 | 3 = 2
   walkFrame = 1
   walkFrameTime = 0
   idleEndTime = 0
 
-  constructor(scene: THREE.Scene, spriteUrl: string, startPos: THREE.Vector3) {
+  constructor(
+    scene: THREE.Scene,
+    spriteUrl: string,
+    startPos: THREE.Vector3,
+    name: string,
+    tint?: THREE.Color,
+  ) {
+    this.name = name
+    this.target = new THREE.Vector3().copy(startPos)
+
     const loader = new THREE.TextureLoader()
     this.bodyTex = loader.load(spriteUrl)
     this.bodyTex.magFilter = THREE.NearestFilter
@@ -28,6 +39,7 @@ class Agent {
     this.bodyTex.offset.set(0, 1 / 4)
 
     const mat = new THREE.SpriteMaterial({ map: this.bodyTex })
+    if (tint) mat.color.copy(tint)
     this.sprite = new THREE.Sprite(mat)
     this.sprite.scale.set(2, 2, 1)
     this.sprite.position.copy(startPos)
@@ -35,8 +47,18 @@ class Agent {
   }
 
   pickNewTarget() {
-    this.target.x = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
-    this.target.z = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
+    const r = Math.random()
+    const fireplaceMark = Agent.landmarks.find((l) => l.name === 'fireplace')
+    const boardMark = Agent.landmarks.find((l) => l.name === 'quest-board')
+
+    if (r < 0.5 && fireplaceMark) {
+      this.target.copy(fireplaceMark.position)
+    } else if (r < 0.75 && boardMark) {
+      this.target.copy(boardMark.position)
+    } else {
+      this.target.x = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
+      this.target.z = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
+    }
     this.target.y = 1
     this.state = 'walking'
     this.walkFrame = 1
@@ -156,7 +178,29 @@ questBoard.add(questBoardPost)
 questBoard.position.set(3, 0, 3)
 scene.add(questBoard)
 
-const agent = new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0))
+Agent.landmarks.push({ name: 'fireplace', position: new THREE.Vector3(-3, 1, -2) })
+Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2) })
+
+const agents: Agent[] = []
+agents.push(new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0), 'main'))
+agents.push(
+  new Agent(
+    scene,
+    '/assets/sprites/body_male_walk.png',
+    new THREE.Vector3(-1.5, 1, 1.5),
+    'sub-1',
+    new THREE.Color(0.85, 0.85, 1.0),
+  ),
+)
+agents.push(
+  new Agent(
+    scene,
+    '/assets/sprites/body_male_walk.png',
+    new THREE.Vector3(1.5, 1, -1.5),
+    'sub-2',
+    new THREE.Color(1.0, 0.85, 0.85),
+  ),
+)
 
 const fireLight = new THREE.PointLight(0xff8c3a, 8, 15)
 fireLight.position.set(-3, 2, -3)
@@ -176,7 +220,7 @@ function animate() {
   const now = performance.now()
   const dtMs = lastTime === 0 ? 0 : now - lastTime
   lastTime = now
-  agent.update(now, dtMs)
+  for (const a of agents) a.update(now, dtMs)
   fireLight.intensity = 8 + Math.random() * 2
   renderer.render(scene, camera)
 }
