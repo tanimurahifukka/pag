@@ -6,6 +6,7 @@
  */
 
 const PAG_URL = process.env.PAG_URL || 'http://localhost:5173/__pag/event'
+const SID = 'demo-session-' + Date.now().toString(36)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -29,64 +30,137 @@ async function send(payload, label) {
 }
 
 const SCRIPT = [
-  // セッション開始 → main がドアから入場
-  { wait: 500, payload: { hook_event_name: 'SessionStart' }, label: 'SessionStart' },
+  // セッション開始 → party がドアから入場
+  { wait: 500, payload: { hook_event_name: 'SessionStart', session_id: SID }, label: 'SessionStart' },
 
   // ファイルを探す
-  { wait: 2200, payload: { hook_event_name: 'PreToolUse', tool_name: 'Glob' }, label: 'PreToolUse Glob (find files)' },
-  { wait: 1400, payload: { hook_event_name: 'PostToolUse', tool_name: 'Glob' }, label: 'PostToolUse Glob' },
+  {
+    wait: 2200,
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Glob', session_id: SID },
+    label: 'PreToolUse Glob (find files)',
+  },
+  {
+    wait: 1400,
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'Glob', session_id: SID },
+    label: 'PostToolUse Glob',
+  },
 
   // 内容を読む
-  { wait: 1600, payload: { hook_event_name: 'PreToolUse', tool_name: 'Read' }, label: 'PreToolUse Read (library)' },
-  { wait: 1400, payload: { hook_event_name: 'PostToolUse', tool_name: 'Read' }, label: 'PostToolUse Read' },
+  {
+    wait: 1600,
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Read', session_id: SID },
+    label: 'PreToolUse Read (library)',
+  },
+  {
+    wait: 1400,
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'Read', session_id: SID },
+    label: 'PostToolUse Read',
+  },
 
   // grep で探索
-  { wait: 1400, payload: { hook_event_name: 'PreToolUse', tool_name: 'Grep' }, label: 'PreToolUse Grep' },
-  { wait: 1200, payload: { hook_event_name: 'PostToolUse', tool_name: 'Grep' }, label: 'PostToolUse Grep' },
+  {
+    wait: 1400,
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Grep', session_id: SID },
+    label: 'PreToolUse Grep',
+  },
+  {
+    wait: 1200,
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'Grep', session_id: SID },
+    label: 'PostToolUse Grep',
+  },
 
   // Bash 実行 → workbench
-  { wait: 1800, payload: { hook_event_name: 'PreToolUse', tool_name: 'Bash' }, label: 'PreToolUse Bash (workbench)' },
-  { wait: 1800, payload: { hook_event_name: 'PostToolUse', tool_name: 'Bash' }, label: 'PostToolUse Bash' },
+  {
+    wait: 1800,
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Bash', session_id: SID },
+    label: 'PreToolUse Bash (workbench)',
+  },
+  {
+    wait: 1800,
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'Bash', session_id: SID },
+    label: 'PostToolUse Bash',
+  },
 
   // ファイル編集 → 訓練人形を切る
-  { wait: 1600, payload: { hook_event_name: 'PreToolUse', tool_name: 'Write' }, label: 'PreToolUse Write (dummy)' },
-  { wait: 1800, payload: { hook_event_name: 'PostToolUse', tool_name: 'Write' }, label: 'PostToolUse Write' },
+  {
+    wait: 1600,
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Write', session_id: SID },
+    label: 'PreToolUse Write (dummy)',
+  },
+  {
+    wait: 1800,
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'Write', session_id: SID },
+    label: 'PostToolUse Write',
+  },
 
-  { wait: 1400, payload: { hook_event_name: 'PreToolUse', tool_name: 'Edit' }, label: 'PreToolUse Edit (dummy)' },
-  { wait: 1800, payload: { hook_event_name: 'PostToolUse', tool_name: 'Edit' }, label: 'PostToolUse Edit' },
+  {
+    wait: 1400,
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Edit', session_id: SID },
+    label: 'PreToolUse Edit (dummy)',
+  },
+  {
+    wait: 1800,
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'Edit', session_id: SID },
+    label: 'PostToolUse Edit',
+  },
 
-  // ツール失敗 → 赤フラッシュ
-  { wait: 1600, payload: { hook_event_name: 'PreToolUse', tool_name: 'Bash' }, label: 'PreToolUse Bash (will fail)' },
+  // ツール失敗イベント
+  {
+    wait: 1600,
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Bash', session_id: SID },
+    label: 'PreToolUse Bash (will fail)',
+  },
   {
     wait: 1500,
-    payload: { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_response: { is_error: true, error: 'exit 1' } },
-    label: 'PostToolUse Bash FAIL (red flash)',
+    payload: {
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Bash',
+      tool_response: { is_error: true, error: 'exit 1' },
+      session_id: SID,
+    },
+    label: 'PostToolUse Bash FAIL',
   },
 
   // サブエージェント spawn
   {
     wait: 2200,
-    payload: { hook_event_name: 'PreToolUse', tool_name: 'Task', tool_use_id: 'demo-task-001' },
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Task', tool_use_id: 'demo-task-001', session_id: SID },
     label: 'PreToolUse Task (spawn subagent)',
   },
 
   // サブエージェント中の活動を演出
-  { wait: 2400, payload: { hook_event_name: 'PreToolUse', tool_name: 'Read' }, label: '  (main also reading)' },
-  { wait: 1600, payload: { hook_event_name: 'PostToolUse', tool_name: 'Read' }, label: '  PostToolUse Read' },
+  {
+    wait: 2400,
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'Read', session_id: SID },
+    label: '  (main also reading)',
+  },
+  {
+    wait: 1600,
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'Read', session_id: SID },
+    label: '  PostToolUse Read',
+  },
 
   // サブエージェント完了
   {
     wait: 2000,
-    payload: { hook_event_name: 'PostToolUse', tool_name: 'Task', tool_use_id: 'demo-task-001' },
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'Task', tool_use_id: 'demo-task-001', session_id: SID },
     label: 'PostToolUse Task (subagent done)',
   },
 
   // Web 検索 → quest-board
-  { wait: 1800, payload: { hook_event_name: 'PreToolUse', tool_name: 'WebSearch' }, label: 'PreToolUse WebSearch (board)' },
-  { wait: 2000, payload: { hook_event_name: 'PostToolUse', tool_name: 'WebSearch' }, label: 'PostToolUse WebSearch' },
+  {
+    wait: 1800,
+    payload: { hook_event_name: 'PreToolUse', tool_name: 'WebSearch', session_id: SID },
+    label: 'PreToolUse WebSearch (board)',
+  },
+  {
+    wait: 2000,
+    payload: { hook_event_name: 'PostToolUse', tool_name: 'WebSearch', session_id: SID },
+    label: 'PostToolUse WebSearch',
+  },
 
-  // セッション終了 → main がドアへ
-  { wait: 2400, payload: { hook_event_name: 'Stop' }, label: 'Stop (session end → door)' },
+  // セッション終了 → party がドアへ
+  { wait: 2400, payload: { hook_event_name: 'Stop', session_id: SID }, label: 'Stop (session end → door)' },
 ]
 
 async function main() {

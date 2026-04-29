@@ -938,6 +938,31 @@ Agent.landmarks.push({ name: 'door', position: new THREE.Vector3(3, 1, -2), face
 const agents: Agent[] = []
 const taskAgents = new Map<string, string>()
 let taskCounter = 0
+type PartyRole = 'main' | 'archer' | 'healer' | 'mage'
+const PARTY_ROLES: PartyRole[] = ['main', 'archer', 'healer', 'mage']
+const PARTY_ARCHETYPE_PNG: Record<PartyRole, { walk: string; slash: string }> = {
+  main: { walk: '/assets/sprites/legacy/char_main_walk.png', slash: '/assets/sprites/legacy/char_main_slash.png' },
+  archer: {
+    walk: '/assets/sprites/legacy/char_archer_walk.png',
+    slash: '/assets/sprites/legacy/char_archer_slash.png',
+  },
+  healer: {
+    walk: '/assets/sprites/legacy/char_healer_walk.png',
+    slash: '/assets/sprites/legacy/char_healer_slash.png',
+  },
+  mage: { walk: '/assets/sprites/legacy/char_mage_walk.png', slash: '/assets/sprites/legacy/char_mage_slash.png' },
+}
+
+interface Party {
+  sessionId: string
+  sid8: string
+  tint: THREE.Color
+  members: Map<PartyRole, string>
+  createdAt: number
+}
+
+const parties = new Map<string, Party>()
+const MAX_PARTIES = 3
 const LOG_MAX = 10
 const logEl = (() => {
   const el = document.createElement('div')
@@ -991,6 +1016,91 @@ function refreshStatus() {
   eventsCountEl.textContent = String(totalEvents)
 }
 setInterval(refreshStatus, 500)
+
+function partyTintFromSid(sid: string): THREE.Color {
+  let h = 0
+  for (let i = 0; i < sid.length; i++) h = (h * 31 + sid.charCodeAt(i)) >>> 0
+  const hue = (h % 360) / 360
+  const c = new THREE.Color()
+  c.setHSL(hue, 0.5, 0.65)
+  c.r = 0.7 + c.r * 0.5
+  c.g = 0.7 + c.g * 0.5
+  c.b = 0.7 + c.b * 0.5
+  return c
+}
+
+function makePartyMemberName(sid8: string, role: PartyRole): string {
+  return `${sid8}-${role}`
+}
+
+function createParty(sessionId: string) {
+  if (parties.has(sessionId)) return parties.get(sessionId)!
+
+  if (parties.size >= MAX_PARTIES) {
+    let oldestId = ''
+    let oldestT = Infinity
+    for (const [k, v] of parties) {
+      if (v.createdAt < oldestT) {
+        oldestT = v.createdAt
+        oldestId = k
+      }
+    }
+    if (oldestId) destroyParty(oldestId)
+  }
+
+  const sid8 = sessionId.slice(0, 8) || 's' + Math.random().toString(36).slice(2, 9)
+  const tint = partyTintFromSid(sid8)
+  const members = new Map<PartyRole, string>()
+  const baseStart = new THREE.Vector3(3, 1, -2)
+
+  PARTY_ROLES.forEach((role, i) => {
+    const name = makePartyMemberName(sid8, role)
+    const start = new THREE.Vector3(
+      baseStart.x + (Math.random() - 0.5) * 0.6,
+      1,
+      baseStart.z + (Math.random() - 0.5) * 0.6 + i * 0.3,
+    )
+    const archetype = PARTY_ARCHETYPE_PNG[role]
+    const a = new Agent(scene, archetype.walk, start, name, {
+      tint,
+      sword: {
+        bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+        fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+      },
+      slashUrl: archetype.slash,
+    })
+    agents.push(a)
+    members.set(role, name)
+    a.goto(new THREE.Vector3((Math.random() - 0.5) * 4, 1, (Math.random() - 0.5) * 4))
+  })
+
+  const party: Party = { sessionId, sid8, tint, members, createdAt: performance.now() }
+  parties.set(sessionId, party)
+  pushLog(`party ${sid8} joined`, 'spawn')
+  return party
+}
+
+function destroyParty(sessionId: string) {
+  const p = parties.get(sessionId)
+  if (!p) return
+  for (const name of p.members.values()) {
+    window.pag.dispatch({ type: 'remove', agentId: name })
+  }
+  parties.delete(sessionId)
+  pushLog(`party ${p.sid8} left`, 'remove')
+}
+
+function escortPartyToDoor(sessionId: string) {
+  const p = parties.get(sessionId)
+  if (!p) return
+  const door = Agent.landmarks.find((l) => l.name === 'door')
+  if (!door) return
+  for (const name of p.members.values()) {
+    window.pag.dispatch({ type: 'goto', agentId: name, landmark: 'door' })
+  }
+  pushLog(`party ${p.sid8} -> door`, 'idle')
+  window.setTimeout(() => destroyParty(sessionId), 5000)
+}
 
 class AudioManager {
   ctx: AudioContext | null = null
@@ -1409,6 +1519,19 @@ function handleHookEvent(payload: any) {
   refreshStatus()
   const hookName: string = payload.hook_event_name || ''
   const toolName: string = payload.tool_name || (payload.tool_input && payload.tool_input.tool_name) || ''
+  const sessionId: string = payload.session_id || ''
+  const party = sessionId ? parties.get(sessionId) : undefined
+
+  if (hookName === 'SessionStart' && sessionId) {
+    createParty(sessionId)
+    pushLog(`session ${sessionId.slice(0, 8)} start`, 'spawn')
+    return
+  }
+
+  if (hookName === 'Stop' && sessionId) {
+    if (parties.has(sessionId)) escortPartyToDoor(sessionId)
+    return
+  }
 
   switch (hookName) {
     case 'SessionStart': {
@@ -1439,6 +1562,35 @@ function handleHookEvent(payload: any) {
         window.pag.dispatch({ type: 'goto', agentId: agentName, landmark: 'fireplace' })
         return
       }
+
+      if (party) {
+        const role: PartyRole =
+          toolName === 'Bash' || toolName === 'Write' || toolName === 'Edit'
+            ? 'main'
+            : toolName === 'Read' || toolName === 'Grep' || toolName === 'Glob'
+              ? 'archer'
+              : toolName === 'WebSearch' || toolName === 'WebFetch'
+                ? 'mage'
+                : 'healer'
+        const memberName = party.members.get(role)
+        if (memberName) {
+          window.pag.dispatch({ type: 'show-tool', agentId: memberName, toolName })
+          if (role === 'main') {
+            const landmark = toolName === 'Bash' ? 'workbench' : 'dummy'
+            window.pag.dispatch({ type: 'goto', agentId: memberName, landmark })
+            if (toolName !== 'Bash') attackWhenNearLandmark(memberName, landmark)
+          } else if (role === 'archer') {
+            window.pag.dispatch({ type: 'goto', agentId: memberName, landmark: 'library' })
+          } else if (role === 'mage') {
+            window.pag.dispatch({ type: 'goto', agentId: memberName, landmark: 'quest-board' })
+          } else {
+            window.pag.dispatch({ type: 'goto', agentId: memberName, landmark: 'fireplace' })
+          }
+          pushLog(`${party.sid8}/${role} -> ${toolName}`, role === 'main' ? 'attack' : 'board')
+        }
+        return
+      }
+      if (sessionId) return
 
       window.pag.dispatch({ type: 'show-tool', agentId: 'main', toolName })
 
@@ -1472,6 +1624,12 @@ function handleHookEvent(payload: any) {
         }
         return
       }
+      if (party) {
+        const memberName = party.members.get('main')
+        if (memberName) window.pag.dispatch({ type: 'idle', agentId: memberName, durationMs: 1500 })
+        return
+      }
+      if (sessionId) return
       const failed = !!(
         payload?.tool_response?.error ||
         payload?.tool_response?.is_error ||
