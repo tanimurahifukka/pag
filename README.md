@@ -171,6 +171,20 @@ echo '{"hook_event_name":"PreToolUse","tool_name":"Bash"}' \
 
 → ブラウザの `main` キャラが剣を振る。
 
+#### デモシーケンス
+
+実際の Claude Code を繋がずに pag の挙動を一通り眺めたい場合:
+
+```bash
+# ターミナル 1
+npm run dev
+
+# ターミナル 2
+npm run demo
+```
+
+`scripts/demo.mjs` が SessionStart → 各種 PreToolUse / PostToolUse → Task subagent spawn → ツール失敗 → Stop の curated シーケンスを順次 POST する。約 35 秒で 1 周。
+
 ## 技術スタック
 
 - **Three.js (r188+)**: 3D/2.5D レンダリング、Orthographic camera で擬似アイソメトリック

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "demo": "node scripts/demo.mjs",
     "install-hook": "node scripts/install-pag-hook.mjs",
     "uninstall-hook": "node scripts/uninstall-pag-hook.mjs",
     "preview": "vite preview"
