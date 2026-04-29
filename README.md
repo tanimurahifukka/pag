@@ -23,10 +23,15 @@ npm run dev
 | オブジェクト | 位置 | 意味 |
 | --- | --- | --- |
 | 床 (10×10) | 中心 (0, 0, 0) | 石畳タイル（procedural canvas）。エージェント目標は床端から 1 単位マージン内 |
-| 暖炉 | (-3, 0, -3) | 思考・待機・「実行中」の象徴。`landmark: 'fireplace'` |
+| 暖炉 | (-3, 0, -3) | 思考・待機・「実行中」の象徴。`landmark: 'fireplace'`。火の粉が立ち上る |
 | クエスト掲示板 | (3, 0, 3) | 情報参照・タスクキューの象徴。`landmark: 'quest-board'` |
+| ドア | (3, 0, -3) | セッション境界。`landmark: 'door'`、ランダム遷移には含まれない |
 | 戦士キャラ | dynamic | エージェント本体。LPC body + arming sword (bg/fg レイヤー) で描画 |
 | 頭上ラベル | follow | `{name}: {state}` を表示する canvas テクスチャ |
+| ツールバブル | follow | tool 名を 1.8 秒だけ表示する角丸スピーチバブル |
+| アクティビティログ | 画面右下 | 直近 10 件の hook イベントを HH:MM:SS 付きで表示 |
+| 火の粉 | 暖炉から | 50ms ごとに 1 つ、橙→黄に変化しながらフェードアウト |
+| 足元の埃 | 歩行時 | walk frame 1/5 で agent の足元から 1 つ |
 
 ## 操作
 
@@ -55,12 +60,13 @@ window.pag.dispatch({ type: 'remove',  agentId: 'sub-3' })
 
 ```ts
 type AgentEvent =
-  | { type: 'goto';    agentId: string; landmark: string }              // 'fireplace' | 'quest-board'
-  | { type: 'goto-xy'; agentId: string; x: number; z: number }
-  | { type: 'idle';    agentId: string; durationMs?: number }
-  | { type: 'attack';  agentId: string }
-  | { type: 'spawn';   agentId: string; tint?: [number, number, number] }
-  | { type: 'remove';  agentId: string }
+  | { type: 'goto';      agentId: string; landmark: string }              // 'fireplace' | 'quest-board' | 'door'
+  | { type: 'goto-xy';   agentId: string; x: number; z: number }
+  | { type: 'idle';      agentId: string; durationMs?: number }
+  | { type: 'attack';    agentId: string }
+  | { type: 'show-tool'; agentId: string; toolName: string; durationMs?: number }
+  | { type: 'spawn';     agentId: string; tint?: [number, number, number] }
+  | { type: 'remove';    agentId: string }
 ```
 
 `dispatch()` は overlay 命令として動作する。命令が来ればその通りに動き、命令が無いか到着後は自律ランダムウォークに戻る。`attack` は slash アニメ完走後、強制的に idle に遷移。
@@ -123,11 +129,17 @@ Browser (src/main.ts)
 
 | Claude Code event | 条件 | pag dispatch |
 | --- | --- | --- |
-| `PreToolUse` | tool=Bash/Write/Edit | `attack` (剣を振る) |
-| `PreToolUse` | tool=Read/Grep/Glob | `goto quest-board` (情報参照) |
-| `PreToolUse` | その他 | `goto fireplace` (思考中) |
-| `PostToolUse` / `Stop` | — | `idle` 1.5s |
-| `SubagentStop` | — | `remove sub-{session_id 先頭8桁}` |
+| `SessionStart` | — | main をドアに瞬間配置 → 中央へ歩く（入場演出） |
+| `PreToolUse` | tool=Task | `task-{tool_use_id}` 名で動的 spawn (緑 tint) → fireplace へ |
+| `PreToolUse` | tool=Bash/Write/Edit | main に `show-tool` バブル + `attack` (剣を振る) |
+| `PreToolUse` | tool=Read/Grep/Glob | main に `show-tool` バブル + `goto quest-board` |
+| `PreToolUse` | その他 | main に `show-tool` バブル + `goto fireplace` |
+| `PostToolUse` | tool=Task | 該当 `task-*` agent を `remove` |
+| `PostToolUse` | その他 | main を `idle` 1.5s |
+| `Stop` | — | main を `goto door`（セッション終了演出、ドア到着後は自律 random walk へ） |
+| `SubagentStop` | — | `remove sub-{session_id 先頭8桁}`（保険、taskAgents Map とは別経路） |
+
+各 dispatch はアクティビティログ HUD にも色付きで記録される。
 
 `src/main.ts` の `handleHookEvent` を書き換えれば自由にマッピング変更可能。
 
@@ -156,17 +168,23 @@ src/main.ts
 │   ├── body sprite + bodyTex (walk sheet)
 │   ├── slashTex (attack sheet, on demand)
 │   ├── swordBg / swordFg sprites (renderOrder 0 / 2)
-│   ├── label sprite (canvas texture, renderOrder 10)
+│   ├── label sprite (always-on, canvas texture, renderOrder 10)
+│   ├── bubble sprite (transient tool name, renderOrder 11)
 │   ├── state: 'idle' | 'walking' | 'attacking'
-│   ├── pickNewTarget()  ← bias toward landmarks
-│   ├── update(now, dtMs) ← state machine + separation force
-│   └── attack() / goto() / setIdle()  ← external commands
-├── Agent.landmarks: { name, position }[]   ← shared registry
+│   ├── pickNewTarget()    ← landmark bias (fireplace 50% / board 25% / random 25%)
+│   ├── update(now, dtMs)  ← state machine + separation force + bubble auto-hide + dust emit
+│   ├── attack() / goto() / setIdle() / showTool()  ← external commands
+│   └── finishAttack()
+├── Agent.landmarks: { name, position }[]   ← shared registry (fireplace / quest-board / door)
 ├── Agent.all: Agent[]                      ← shared for separation
 ├── agents: Agent[]                         ← spawn order
-├── dispatch(event)                         ← AgentEvent → method calls
+├── taskAgents: Map<tool_use_id, name>      ← Task tool dynamic spawn tracking
+├── Particle class + activeParticles + particlePool + emitParticle()
+├── pushLog(msg, tag) + #pag-log DOM HUD
+├── dispatch(event)         ← AgentEvent → method calls
 ├── window.pag = { dispatch, list }
-└── pollHookEvents()                        ← /__pag/events → dispatch
+├── handleHookEvent(payload) ← maps Claude Code hook payloads to dispatch + pushLog
+└── pollHookEvents()         ← /__pag/events fetch loop (every 500ms)
 
 vite.config.ts
 └── pagHookBridge plugin
@@ -174,7 +192,7 @@ vite.config.ts
     └── GET  /__pag/events?since=N → diff
 
 scripts/claude-pag-hook.sh
-└── stdin → POST /__pag/event with hook_event_name tag
+└── stdin → POST /__pag/event with hook_event_name tag (jq optional)
 ```
 
 ## ロードマップ
@@ -192,10 +210,14 @@ scripts/claude-pag-hook.sh
 - [x] 複数 body スプライト（male/female/muscular で識別）
 - [x] attack 状態と slash アニメーション
 - [x] Claude Code hooks bridge（Vite middleware + shell script + client poll）
-- [ ] subagent イベントから動的 spawn（現在は remove のみマッピング）
-- [ ] エージェント間対話演出（吹き出し、向き合い）
-- [ ] パーティクル（暖炉の煙、足元の埃）
+- [x] PreToolUse Task からの動的 subagent spawn / PostToolUse で remove
+- [x] ツール名スピーチバブル（PreToolUse のたびに対応 agent 頭上）
+- [x] アクティビティログ HUD（画面右下、色付き、HH:MM:SS）
+- [x] パーティクル（暖炉の火の粉、歩行時の足元の埃）
+- [x] ドア配置 + SessionStart で入場 / Stop でドアへ向かう演出
+- [ ] エージェント間対話演出（吹き出しのやりとり、向き合い）
 - [ ] 時間帯による光量変化（朝・夕・夜）
+- [ ] tool 結果の成功/失敗を視覚化（例: 失敗時の赤いハイライト）
 
 ## ライセンス
 
