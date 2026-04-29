@@ -561,6 +561,7 @@ class Agent {
           0.05,
           this.sprite.position.z + (Math.random() - 0.5) * 0.2,
         )
+        audio.playFootstep()
       }
     }
     this.setFrame(this.walkFrame, this.direction)
@@ -990,6 +991,102 @@ function refreshStatus() {
   eventsCountEl.textContent = String(totalEvents)
 }
 setInterval(refreshStatus, 500)
+
+class AudioManager {
+  ctx: AudioContext | null = null
+  masterGain: GainNode | null = null
+  crackleTimerId: number | null = null
+  muted = true
+
+  async ensure() {
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+      this.masterGain = this.ctx.createGain()
+      this.masterGain.gain.value = this.muted ? 0 : 0.4
+      this.masterGain.connect(this.ctx.destination)
+      this.startCrackle()
+    }
+
+    if (this.ctx.state === 'suspended') {
+      await this.ctx.resume()
+    }
+  }
+
+  setMuted(m: boolean) {
+    this.muted = m
+    if (this.masterGain) {
+      this.masterGain.gain.cancelScheduledValues(this.ctx!.currentTime)
+      this.masterGain.gain.setTargetAtTime(m ? 0 : 0.4, this.ctx!.currentTime, 0.05)
+    }
+  }
+
+  startCrackle() {
+    if (!this.ctx || !this.masterGain) return
+    const tick = () => {
+      if (!this.ctx) return
+      const dur = 0.04 + Math.random() * 0.04
+      const buf = this.ctx.createBuffer(1, Math.ceil(this.ctx.sampleRate * dur), this.ctx.sampleRate)
+      const data = buf.getChannelData(0)
+      for (let i = 0; i < data.length; i++) {
+        data[i] = (Math.random() * 2 - 1) * (1 - i / data.length)
+      }
+      const src = this.ctx.createBufferSource()
+      src.buffer = buf
+      const filter = this.ctx.createBiquadFilter()
+      filter.type = 'bandpass'
+      filter.frequency.value = 800 + Math.random() * 1500
+      filter.Q.value = 5
+      const gain = this.ctx.createGain()
+      gain.gain.value = 0.15 + Math.random() * 0.25
+      src.connect(filter).connect(gain).connect(this.masterGain!)
+      src.start()
+      this.crackleTimerId = window.setTimeout(tick, 80 + Math.random() * 270)
+    }
+    tick()
+  }
+
+  playFootstep() {
+    if (!this.ctx || !this.masterGain || this.muted) return
+    const dur = 0.05
+    const buf = this.ctx.createBuffer(1, Math.ceil(this.ctx.sampleRate * dur), this.ctx.sampleRate)
+    const data = buf.getChannelData(0)
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / data.length) * 0.5
+    }
+    const src = this.ctx.createBufferSource()
+    src.buffer = buf
+    const filter = this.ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.value = 250
+    const gain = this.ctx.createGain()
+    gain.gain.value = 0.2
+    src.connect(filter).connect(gain).connect(this.masterGain)
+    src.start()
+  }
+}
+
+const audio = new AudioManager()
+
+let audioInitialized = false
+function initAudioOnGesture() {
+  if (audioInitialized) return
+  audioInitialized = true
+  audio.ensure()
+}
+document.addEventListener('click', initAudioOnGesture, { once: true })
+document.addEventListener('keydown', initAudioOnGesture, { once: true })
+
+const audioToggle = document.createElement('div')
+audioToggle.id = 'pag-audio-toggle'
+audioToggle.textContent = '🔇 sound'
+audioToggle.addEventListener('click', () => {
+  audio.ensure()
+  const newMuted = !audio.muted
+  audio.setMuted(newMuted)
+  audioToggle.textContent = newMuted ? '🔇 sound' : '🔊 sound'
+  audioToggle.classList.toggle('on', !newMuted)
+})
+document.body.appendChild(audioToggle)
 
 agents.push(
   new Agent(scene, '/assets/sprites/legacy/char_main_walk.png', new THREE.Vector3(0, 1, 0), 'main', {
