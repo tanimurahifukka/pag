@@ -21,6 +21,19 @@
 | `public/assets/sprites/body_teen_walk.png` | `spritesheets/body/bodies/teen/walk.png` |
 | `public/assets/sprites/body_teen_slash.png` | `spritesheets/body/bodies/teen/slash.png` |
 
+### Heads (LPC universal layout, human variants)
+
+| ファイル | 元ファイル名 |
+| --- | --- |
+| `public/assets/sprites/head/head_male_walk.png` | `spritesheets/head/heads/human/male/walk.png` |
+| `public/assets/sprites/head/head_male_slash.png` | `spritesheets/head/heads/human/male/slash.png` |
+| `public/assets/sprites/head/head_female_walk.png` | `spritesheets/head/heads/human/female/walk.png` |
+| `public/assets/sprites/head/head_female_slash.png` | `spritesheets/head/heads/human/female/slash.png` |
+| `public/assets/sprites/head/head_muscular_walk.png` | `spritesheets/head/heads/human/male/walk.png` (re-used) |
+| `public/assets/sprites/head/head_muscular_slash.png` | `spritesheets/head/heads/human/male/slash.png` (re-used) |
+| `public/assets/sprites/head/head_teen_walk.png` | `spritesheets/head/heads/human/female_small/walk.png` |
+| `public/assets/sprites/head/head_teen_slash.png` | `spritesheets/head/heads/human/female_small/slash.png` |
+
 ### Hair (single-layer styles, adult palette)
 
 | ファイル | 元ファイル名 |
@@ -33,6 +46,42 @@
 | `public/assets/sprites/hair/bob_slash.png` | `spritesheets/hair/bob/adult/slash.png` |
 | `public/assets/sprites/hair/bangs_walk.png` | `spritesheets/hair/bangs/adult/walk.png` |
 | `public/assets/sprites/hair/bangs_slash.png` | `spritesheets/hair/bangs/adult/slash.png` |
+
+### Clothing — Torso & Legs (LPC universal layout)
+
+| ファイル | 元ファイル名 |
+| --- | --- |
+| `public/assets/sprites/clothes/torso_chainmail_male_walk.png` | `spritesheets/torso/chainmail/male/walk.png` |
+| `public/assets/sprites/clothes/torso_chainmail_male_slash.png` | `spritesheets/torso/chainmail/male/slash.png` |
+| `public/assets/sprites/clothes/torso_longsleeve_female_walk.png` | `spritesheets/torso/clothes/longsleeve/longsleeve/female/walk.png` |
+| `public/assets/sprites/clothes/torso_longsleeve_female_slash.png` | `spritesheets/torso/clothes/longsleeve/longsleeve/female/slash.png` |
+| `public/assets/sprites/clothes/torso_longsleeve_male_walk.png` | `spritesheets/torso/clothes/longsleeve/longsleeve/male/walk.png` |
+| `public/assets/sprites/clothes/torso_longsleeve_male_slash.png` | `spritesheets/torso/clothes/longsleeve/longsleeve/male/slash.png` |
+| `public/assets/sprites/clothes/torso_leather_teen_walk.png` | `spritesheets/torso/armour/leather/teen/walk.png` |
+| `public/assets/sprites/clothes/torso_leather_teen_slash.png` | `spritesheets/torso/armour/leather/teen/slash.png` |
+| `public/assets/sprites/clothes/torso_robe_female_walk.png` | `spritesheets/torso/clothes/robe/female/walk/purple.png` |
+| `public/assets/sprites/clothes/torso_robe_female_slash.png` | `spritesheets/torso/clothes/robe/female/slash/purple.png` |
+| `public/assets/sprites/clothes/torso_plate_female_walk.png` | `spritesheets/torso/armour/plate/female/walk.png` |
+| `public/assets/sprites/clothes/torso_plate_female_slash.png` | `spritesheets/torso/armour/plate/female/slash.png` |
+| `public/assets/sprites/clothes/legs_pants_male_walk.png` | `spritesheets/legs/pants/male/walk.png` |
+| `public/assets/sprites/clothes/legs_pants_male_slash.png` | `spritesheets/legs/pants/male/slash.png` |
+| `public/assets/sprites/clothes/legs_pants_muscular_walk.png` | `spritesheets/legs/pants/muscular/walk.png` |
+| `public/assets/sprites/clothes/legs_pants_muscular_slash.png` | `spritesheets/legs/pants/muscular/slash.png` |
+| `public/assets/sprites/clothes/legs_pants_female_walk.png` | `spritesheets/legs/pants/female/walk/brown.png` |
+| `public/assets/sprites/clothes/legs_pants_female_slash.png` | `spritesheets/legs/pants/female/slash/brown.png` |
+| `public/assets/sprites/clothes/legs_pants_female_gray_walk.png` | `spritesheets/legs/pants/female/walk/gray.png` |
+| `public/assets/sprites/clothes/legs_pants_female_gray_slash.png` | `spritesheets/legs/pants/female/slash/gray.png` |
+| `public/assets/sprites/clothes/legs_pants_teen_walk.png` | `spritesheets/legs/pants/teen/walk/brown.png` |
+| `public/assets/sprites/clothes/legs_pants_teen_slash.png` | `spritesheets/legs/pants/teen/slash/brown.png` |
+
+衣装アセットは LPC リポジトリの sheet definitions と CREDITS.csv に基づく。複数ライセンスのうち、本プロジェクトでは **CC-BY-SA 3.0** を採用。
+
+- **Chainmail** (`torso/chainmail`): Johannes Sjölund (wulax), Napsio (Vitruvian Studio), JaidynReiman. Licenses: OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0. Source: https://opengameart.org/content/lpc-medieval-fantasy-character-sprites
+- **Longsleeve shirts** (`torso/clothes/longsleeve/longsleeve`): JaidynReiman, Johannes Sjölund (wulax), bluecarrot16, ElizaWy, Stephen Challener (Redshrike). Licenses: OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0. Sources: https://opengameart.org/content/lpc-medieval-fantasy-character-sprites, http://opengameart.org/content/lpc-clothing-updates, https://opengameart.org/content/lpc-7-womens-shirts, https://opengameart.org/content/lpc-revised-character-basics, https://github.com/ElizaWy/LPC/tree/main/Characters/Clothing, https://opengameart.org/content/lpc-expanded-sit-run-jump-more, https://opengameart.org/content/lpc-expanded-simple-shirts
+- **Leather armour** (`torso/armour/leather`): Johannes Sjölund (wulax), bluecarrot16, JaidynReiman, Michael Whitlock (bigbeargames), Matthew Krohn (makrohn). Licenses: OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0. Sources: https://opengameart.org/content/lpc-medieval-fantasy-character-sprites, https://opengameart.org/content/lpc-combat-armor-for-women, https://opengameart.org/content/lpc-clothing-updates, https://opengameart.org/content/lpc-expanded-armor
+- **Robe** (`torso/clothes/robe`): Luke Mehl. Licenses: CC-BY-SA 3.0 / GPL 3.0. Source: https://opengameart.org/content/female-mage-clothing-set
+- **Plate armour** (`torso/armour/plate`): JaidynReiman, bluecarrot16, Michael Whitlock (bigbeargames), Matthew Krohn (makrohn), Johannes Sjölund (wulax), Napsio (Vitruvian Studio). Licenses: OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0. Sources: https://opengameart.org/content/lpc-medieval-fantasy-character-sprites, https://opengameart.org/content/lpc-combat-armor-for-women, http://opengameart.org/content/lpc-clothing-updates
+- **Pants** (`legs/pants`): bluecarrot16, JaidynReiman, ElizaWy, Joe White, Matthew Krohn (makrohn), Johannes Sjölund (wulax), Stephen Challener (Redshrike). Licenses: OGA-BY 3.0 / GPL 3.0 / CC-BY-SA 3.0. Sources: https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles, https://opengameart.org/content/lpc-medieval-fantasy-character-sprites, http://opengameart.org/content/lpc-clothing-updates, https://opengameart.org/content/lpc-expanded-pants
 
 LPC body collection と同じく OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0 のマルチライセンス、本プロジェクトでは CC-BY-SA 3.0 を採用。原作者は LPC コミュニティ（CREDITS.csv 参照）。
 

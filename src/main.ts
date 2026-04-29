@@ -136,9 +136,18 @@ class Agent {
   swordFgTex?: THREE.Texture
   hairWalkTex?: THREE.Texture
   hairSlashTex?: THREE.Texture
+  legsWalkTex?: THREE.Texture
+  legsSlashTex?: THREE.Texture
+  torsoWalkTex?: THREE.Texture
+  torsoSlashTex?: THREE.Texture
+  headWalkTex?: THREE.Texture
+  headSlashTex?: THREE.Texture
   swordBg?: THREE.Sprite
   swordFg?: THREE.Sprite
   hairSprite?: THREE.Sprite
+  legsSprite?: THREE.Sprite
+  torsoSprite?: THREE.Sprite
+  headSprite?: THREE.Sprite
   labelSprite: THREE.Sprite
   labelTex: THREE.CanvasTexture
   labelCanvas: HTMLCanvasElement
@@ -170,6 +179,9 @@ class Agent {
       sword?: { bg: string; fg: string }
       slashUrl?: string
       hair?: { walk: string; slash?: string }
+      head?: { walk: string; slash?: string }
+      torso?: { walk: string; slash?: string }
+      legs?: { walk: string; slash?: string }
     },
   ) {
     this.name = name
@@ -201,12 +213,14 @@ class Agent {
       this.swordBgTex.offset.set(0, 1 / 4)
       const swordBgMat = new THREE.SpriteMaterial({
         map: this.swordBgTex,
-        transparent: true,
-        depthTest: false,
+        transparent: false,
+        alphaTest: 0.5,
+        depthTest: true,
+        depthWrite: true,
       })
       this.swordBg = new THREE.Sprite(swordBgMat)
       this.swordBg.scale.set(1, 1, 1)
-      this.swordBg.position.set(0, 0, 0)
+      this.swordBg.position.set(0, 0, -0.1)
       this.swordBg.renderOrder = 0
       this.sprite.add(this.swordBg)
 
@@ -218,13 +232,15 @@ class Agent {
       this.swordFgTex.offset.set(0, 1 / 4)
       const swordFgMat = new THREE.SpriteMaterial({
         map: this.swordFgTex,
-        transparent: true,
-        depthTest: false,
+        transparent: false,
+        alphaTest: 0.5,
+        depthTest: true,
+        depthWrite: true,
       })
       this.swordFg = new THREE.Sprite(swordFgMat)
       this.swordFg.scale.set(1, 1, 1)
-      this.swordFg.position.set(0, 0, 0)
-      this.swordFg.renderOrder = 3
+      this.swordFg.position.set(0, 0, 0.5)
+      this.swordFg.renderOrder = 6
       this.sprite.add(this.swordFg)
     }
 
@@ -266,34 +282,32 @@ class Agent {
     this.bubbleSprite.visible = false
     this.sprite.add(this.bubbleSprite)
 
+    if (options?.legs) {
+      const r = this.addOverlayLayer(options.legs, 2)
+      this.legsWalkTex = r.walkTex
+      this.legsSlashTex = r.slashTex
+      this.legsSprite = r.sprite
+      this.legsSprite.position.z = 0.1
+    }
+    if (options?.torso) {
+      const r = this.addOverlayLayer(options.torso, 3)
+      this.torsoWalkTex = r.walkTex
+      this.torsoSlashTex = r.slashTex
+      this.torsoSprite = r.sprite
+      this.torsoSprite.position.z = 0.2
+    }
+    if (options?.head) {
+      const r = this.addOverlayLayer(options.head, 4)
+      this.headWalkTex = r.walkTex
+      this.headSlashTex = r.slashTex
+      this.headSprite = r.sprite
+    }
     if (options?.hair) {
-      const hairLoader = new THREE.TextureLoader()
-      this.hairWalkTex = hairLoader.load(options.hair.walk)
-      this.hairWalkTex.magFilter = THREE.NearestFilter
-      this.hairWalkTex.minFilter = THREE.NearestFilter
-      this.hairWalkTex.colorSpace = THREE.SRGBColorSpace
-      this.hairWalkTex.repeat.set(1 / 9, 1 / 4)
-      this.hairWalkTex.offset.set(0, 1 / 4)
-
-      if (options.hair.slash) {
-        this.hairSlashTex = hairLoader.load(options.hair.slash)
-        this.hairSlashTex.magFilter = THREE.NearestFilter
-        this.hairSlashTex.minFilter = THREE.NearestFilter
-        this.hairSlashTex.colorSpace = THREE.SRGBColorSpace
-        this.hairSlashTex.repeat.set(1 / 6, 1 / 4)
-        this.hairSlashTex.offset.set(0, 1 / 4)
-      }
-
-      const hairMat = new THREE.SpriteMaterial({
-        map: this.hairWalkTex,
-        transparent: true,
-        depthTest: false,
-      })
-      this.hairSprite = new THREE.Sprite(hairMat)
-      this.hairSprite.scale.set(1, 1, 1)
-      this.hairSprite.position.set(0, 0, 0)
-      this.hairSprite.renderOrder = 2
-      this.sprite.add(this.hairSprite)
+      const r = this.addOverlayLayer(options.hair, 5)
+      this.hairWalkTex = r.walkTex
+      this.hairSlashTex = r.slashTex
+      this.hairSprite = r.sprite
+      this.hairSprite.position.z = 0.4
     }
 
     if (options?.slashUrl) {
@@ -307,6 +321,41 @@ class Agent {
     }
 
     Agent.all.push(this)
+  }
+
+  private addOverlayLayer(
+    spec: { walk: string; slash?: string },
+    renderOrder: number,
+  ): { walkTex: THREE.Texture; slashTex?: THREE.Texture; sprite: THREE.Sprite } {
+    const loader = new THREE.TextureLoader()
+    const walkTex = loader.load(spec.walk)
+    walkTex.magFilter = THREE.NearestFilter
+    walkTex.minFilter = THREE.NearestFilter
+    walkTex.colorSpace = THREE.SRGBColorSpace
+    walkTex.repeat.set(1 / 9, 1 / 4)
+    walkTex.offset.set(0, 1 / 4)
+
+    let slashTex: THREE.Texture | undefined
+    if (spec.slash) {
+      slashTex = loader.load(spec.slash)
+      slashTex.magFilter = THREE.NearestFilter
+      slashTex.minFilter = THREE.NearestFilter
+      slashTex.colorSpace = THREE.SRGBColorSpace
+      slashTex.repeat.set(1 / 6, 1 / 4)
+      slashTex.offset.set(0, 1 / 4)
+    }
+
+    const mat = new THREE.SpriteMaterial({
+      map: walkTex,
+      transparent: true,
+      depthTest: false,
+    })
+    const sprite = new THREE.Sprite(mat)
+    sprite.scale.set(1, 1, 1)
+    sprite.position.set(0, 0, 0)
+    sprite.renderOrder = renderOrder
+    this.sprite.add(sprite)
+    return { walkTex, slashTex, sprite }
   }
 
   attack() {
@@ -323,8 +372,17 @@ class Agent {
       const hairMat = this.hairSprite.material as THREE.SpriteMaterial
       hairMat.map = this.hairSlashTex
       hairMat.needsUpdate = true
-    } else if (this.hairSprite) {
-      this.hairSprite.visible = false
+    }
+    for (const [tex, spr] of [
+      [this.legsSlashTex, this.legsSprite],
+      [this.torsoSlashTex, this.torsoSprite],
+      [this.headSlashTex, this.headSprite],
+    ] as const) {
+      if (spr && tex) {
+        const m = spr.material as THREE.SpriteMaterial
+        m.map = tex
+        m.needsUpdate = true
+      }
     }
     this.updateLabel('⚔ attack')
     this.nextLookAroundAt = 0
@@ -343,6 +401,17 @@ class Agent {
       this.hairSprite.visible = true
     } else if (this.hairSprite) {
       this.hairSprite.visible = true
+    }
+    for (const [tex, spr] of [
+      [this.legsWalkTex, this.legsSprite],
+      [this.torsoWalkTex, this.torsoSprite],
+      [this.headWalkTex, this.headSprite],
+    ] as const) {
+      if (spr && tex) {
+        const m = spr.material as THREE.SpriteMaterial
+        m.map = tex
+        m.needsUpdate = true
+      }
     }
     this.state = 'idle'
     this.idleEndTime = performance.now() + Agent.IDLE_MIN + Math.random() * (Agent.IDLE_MAX - Agent.IDLE_MIN)
@@ -464,6 +533,18 @@ class Agent {
       this.hairWalkTex.offset.x = ox
       this.hairWalkTex.offset.y = oy
     }
+    if (this.legsWalkTex) {
+      this.legsWalkTex.offset.x = ox
+      this.legsWalkTex.offset.y = oy
+    }
+    if (this.torsoWalkTex) {
+      this.torsoWalkTex.offset.x = ox
+      this.torsoWalkTex.offset.y = oy
+    }
+    if (this.headWalkTex) {
+      this.headWalkTex.offset.x = ox
+      this.headWalkTex.offset.y = oy
+    }
   }
 
   private computeDirection(vx: number, vz: number): 0 | 1 | 2 | 3 {
@@ -504,6 +585,18 @@ class Agent {
       if (this.hairSlashTex) {
         this.hairSlashTex.offset.x = this.slashFrame / Agent.SLASH_FRAME_COUNT
         this.hairSlashTex.offset.y = (3 - this.direction) / 4
+      }
+      if (this.legsSlashTex) {
+        this.legsSlashTex.offset.x = this.slashFrame / Agent.SLASH_FRAME_COUNT
+        this.legsSlashTex.offset.y = (3 - this.direction) / 4
+      }
+      if (this.torsoSlashTex) {
+        this.torsoSlashTex.offset.x = this.slashFrame / Agent.SLASH_FRAME_COUNT
+        this.torsoSlashTex.offset.y = (3 - this.direction) / 4
+      }
+      if (this.headSlashTex) {
+        this.headSlashTex.offset.x = this.slashFrame / Agent.SLASH_FRAME_COUNT
+        this.headSlashTex.offset.y = (3 - this.direction) / 4
       }
       return
     }
@@ -587,7 +680,7 @@ class Agent {
   }
 }
 
-const frustumSize = 10
+const frustumSize = 6
 const aspect = innerWidth / innerHeight
 
 const scene = new THREE.Scene()
@@ -914,74 +1007,97 @@ function refreshStatus() {
 }
 setInterval(refreshStatus, 500)
 
-agents.push(
-  new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0), 'main', {
-    sword: {
-      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
-      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
-    },
+agents.push(new Agent(scene, '/assets/sprites/body_male_walk.png',
+  new THREE.Vector3(0, 1, 0), 'main',
+  {
+    sword: { bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+             fg: '/assets/sprites/weapon/sword_arming_walk_fg.png' },
     slashUrl: '/assets/sprites/body_male_slash.png',
-  }),
-)
-agents.push(
-  new Agent(scene, '/assets/sprites/body_female_walk.png', new THREE.Vector3(-1.5, 1, 1.5), 'sub-1', {
-    sword: {
-      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
-      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
-    },
+    head:  { walk: '/assets/sprites/head/head_male_walk.png',
+             slash: '/assets/sprites/head/head_male_slash.png' },
+    torso: { walk: '/assets/sprites/clothes/torso_chainmail_male_walk.png',
+             slash: '/assets/sprites/clothes/torso_chainmail_male_slash.png' },
+    legs:  { walk: '/assets/sprites/clothes/legs_pants_male_walk.png',
+             slash: '/assets/sprites/clothes/legs_pants_male_slash.png' },
+  }))
+
+agents.push(new Agent(scene, '/assets/sprites/body_female_walk.png',
+  new THREE.Vector3(-1.5, 1, 1.5), 'sub-1',
+  {
+    sword: { bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+             fg: '/assets/sprites/weapon/sword_arming_walk_fg.png' },
     slashUrl: '/assets/sprites/body_female_slash.png',
-  }),
-)
-agents.push(
-  new Agent(scene, '/assets/sprites/body_muscular_walk.png', new THREE.Vector3(1.5, 1, -1.5), 'sub-2', {
-    sword: {
-      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
-      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
-    },
+    head:  { walk: '/assets/sprites/head/head_female_walk.png',
+             slash: '/assets/sprites/head/head_female_slash.png' },
+    torso: { walk: '/assets/sprites/clothes/torso_longsleeve_female_walk.png',
+             slash: '/assets/sprites/clothes/torso_longsleeve_female_slash.png' },
+    legs:  { walk: '/assets/sprites/clothes/legs_pants_female_walk.png',
+             slash: '/assets/sprites/clothes/legs_pants_female_slash.png' },
+  }))
+
+agents.push(new Agent(scene, '/assets/sprites/body_muscular_walk.png',
+  new THREE.Vector3(1.5, 1, -1.5), 'sub-2',
+  {
+    sword: { bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+             fg: '/assets/sprites/weapon/sword_arming_walk_fg.png' },
     slashUrl: '/assets/sprites/body_muscular_slash.png',
-  }),
-)
-agents.push(
-  new Agent(scene, '/assets/sprites/body_teen_walk.png', new THREE.Vector3(-2.5, 1, -1), 'scout', {
-    sword: {
-      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
-      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
-    },
+    head:  { walk: '/assets/sprites/head/head_muscular_walk.png',
+             slash: '/assets/sprites/head/head_muscular_slash.png' },
+    torso: { walk: '/assets/sprites/clothes/torso_longsleeve_male_walk.png',
+             slash: '/assets/sprites/clothes/torso_longsleeve_male_slash.png' },
+    legs:  { walk: '/assets/sprites/clothes/legs_pants_muscular_walk.png',
+             slash: '/assets/sprites/clothes/legs_pants_muscular_slash.png' },
+  }))
+
+agents.push(new Agent(scene, '/assets/sprites/body_teen_walk.png',
+  new THREE.Vector3(-2.5, 1, -1), 'scout',
+  {
+    sword: { bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+             fg: '/assets/sprites/weapon/sword_arming_walk_fg.png' },
     slashUrl: '/assets/sprites/body_teen_slash.png',
-    hair: {
-      walk: '/assets/sprites/hair/pigtails_walk.png',
-      slash: '/assets/sprites/hair/pigtails_slash.png',
-    },
-  }),
-)
-agents.push(
-  new Agent(scene, '/assets/sprites/body_female_walk.png', new THREE.Vector3(2.5, 1, 1), 'mage', {
+    hair:  { walk: '/assets/sprites/hair/pigtails_walk.png',
+             slash: '/assets/sprites/hair/pigtails_slash.png' },
+    head:  { walk: '/assets/sprites/head/head_teen_walk.png',
+             slash: '/assets/sprites/head/head_teen_slash.png' },
+    torso: { walk: '/assets/sprites/clothes/torso_leather_teen_walk.png',
+             slash: '/assets/sprites/clothes/torso_leather_teen_slash.png' },
+    legs:  { walk: '/assets/sprites/clothes/legs_pants_teen_walk.png',
+             slash: '/assets/sprites/clothes/legs_pants_teen_slash.png' },
+  }))
+
+agents.push(new Agent(scene, '/assets/sprites/body_female_walk.png',
+  new THREE.Vector3(2.5, 1, 1), 'mage',
+  {
     tint: new THREE.Color(0.9, 0.95, 1.05),
-    sword: {
-      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
-      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
-    },
+    sword: { bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+             fg: '/assets/sprites/weapon/sword_arming_walk_fg.png' },
     slashUrl: '/assets/sprites/body_female_slash.png',
-    hair: {
-      walk: '/assets/sprites/hair/long_walk.png',
-      slash: '/assets/sprites/hair/long_slash.png',
-    },
-  }),
-)
-agents.push(
-  new Agent(scene, '/assets/sprites/body_female_walk.png', new THREE.Vector3(0, 1, 2.5), 'knight', {
+    hair:  { walk: '/assets/sprites/hair/long_walk.png',
+             slash: '/assets/sprites/hair/long_slash.png' },
+    head:  { walk: '/assets/sprites/head/head_female_walk.png',
+             slash: '/assets/sprites/head/head_female_slash.png' },
+    torso: { walk: '/assets/sprites/clothes/torso_robe_female_walk.png',
+             slash: '/assets/sprites/clothes/torso_robe_female_slash.png' },
+    legs:  { walk: '/assets/sprites/clothes/legs_pants_female_gray_walk.png',
+             slash: '/assets/sprites/clothes/legs_pants_female_gray_slash.png' },
+  }))
+
+agents.push(new Agent(scene, '/assets/sprites/body_female_walk.png',
+  new THREE.Vector3(0, 1, 2.5), 'knight',
+  {
     tint: new THREE.Color(1.05, 0.95, 0.9),
-    sword: {
-      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
-      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
-    },
+    sword: { bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+             fg: '/assets/sprites/weapon/sword_arming_walk_fg.png' },
     slashUrl: '/assets/sprites/body_female_slash.png',
-    hair: {
-      walk: '/assets/sprites/hair/bob_walk.png',
-      slash: '/assets/sprites/hair/bob_slash.png',
-    },
-  }),
-)
+    hair:  { walk: '/assets/sprites/hair/bob_walk.png',
+             slash: '/assets/sprites/hair/bob_slash.png' },
+    head:  { walk: '/assets/sprites/head/head_female_walk.png',
+             slash: '/assets/sprites/head/head_female_slash.png' },
+    torso: { walk: '/assets/sprites/clothes/torso_plate_female_walk.png',
+             slash: '/assets/sprites/clothes/torso_plate_female_slash.png' },
+    legs:  { walk: '/assets/sprites/clothes/legs_pants_female_walk.png',
+             slash: '/assets/sprites/clothes/legs_pants_female_slash.png' },
+  }))
 
 function dispatch(event: AgentEvent) {
   if (event.type === 'spawn') {
