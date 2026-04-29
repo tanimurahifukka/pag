@@ -553,4 +553,53 @@ function handleResize() {
 
 addEventListener('resize', handleResize)
 
+let lastEventId = -1
+async function pollHookEvents() {
+  try {
+    const res = await fetch(`/__pag/events?since=${lastEventId}`)
+    if (!res.ok) return
+    const events = (await res.json()) as { id: number; payload: any }[]
+    for (const e of events) {
+      lastEventId = Math.max(lastEventId, e.id)
+      handleHookEvent(e.payload)
+    }
+  } catch {
+    // dev server だけで動く想定なので失敗は静かに無視
+  }
+}
+
+function handleHookEvent(payload: any) {
+  if (!payload || typeof payload !== 'object') return
+  const hookName: string = payload.hook_event_name || ''
+  const toolName: string = payload.tool_name || (payload.tool_input && payload.tool_input.tool_name) || ''
+
+  switch (hookName) {
+    case 'PreToolUse': {
+      if (toolName === 'Bash' || toolName === 'Write' || toolName === 'Edit') {
+        window.pag.dispatch({ type: 'attack', agentId: 'main' })
+      } else if (toolName === 'Read' || toolName === 'Grep' || toolName === 'Glob') {
+        window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'quest-board' })
+      } else {
+        window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'fireplace' })
+      }
+      break
+    }
+    case 'PostToolUse':
+    case 'Stop': {
+      window.pag.dispatch({ type: 'idle', agentId: 'main', durationMs: 1500 })
+      break
+    }
+    case 'SubagentStop': {
+      const sessionId: string = payload.session_id || ''
+      if (sessionId) {
+        window.pag.dispatch({ type: 'remove', agentId: `sub-${sessionId.slice(0, 8)}` })
+      }
+      break
+    }
+  }
+}
+
+setInterval(pollHookEvents, 500)
+void pollHookEvents()
+
 animate()
