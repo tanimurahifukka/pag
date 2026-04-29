@@ -18,6 +18,23 @@
 | `public/assets/sprites/body_female_slash.png` | `spritesheets/body/bodies/female/slash.png` |
 | `public/assets/sprites/body_muscular_walk.png` | `spritesheets/body/bodies/muscular/walk.png` |
 | `public/assets/sprites/body_muscular_slash.png` | `spritesheets/body/bodies/muscular/slash.png` |
+| `public/assets/sprites/body_teen_walk.png` | `spritesheets/body/bodies/teen/walk.png` |
+| `public/assets/sprites/body_teen_slash.png` | `spritesheets/body/bodies/teen/slash.png` |
+
+### Hair (single-layer styles, adult palette)
+
+| ファイル | 元ファイル名 |
+| --- | --- |
+| `public/assets/sprites/hair/pigtails_walk.png` | `spritesheets/hair/pigtails/adult/walk.png` |
+| `public/assets/sprites/hair/pigtails_slash.png` | `spritesheets/hair/pigtails/adult/slash.png` |
+| `public/assets/sprites/hair/long_walk.png` | `spritesheets/hair/long/adult/walk.png` |
+| `public/assets/sprites/hair/long_slash.png` | `spritesheets/hair/long/adult/slash.png` |
+| `public/assets/sprites/hair/bob_walk.png` | `spritesheets/hair/bob/adult/walk.png` |
+| `public/assets/sprites/hair/bob_slash.png` | `spritesheets/hair/bob/adult/slash.png` |
+| `public/assets/sprites/hair/bangs_walk.png` | `spritesheets/hair/bangs/adult/walk.png` |
+| `public/assets/sprites/hair/bangs_slash.png` | `spritesheets/hair/bangs/adult/slash.png` |
+
+LPC body collection と同じく OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0 のマルチライセンス、本プロジェクトでは CC-BY-SA 3.0 を採用。原作者は LPC コミュニティ（CREDITS.csv 参照）。
 
 - **Authors**: bluecarrot16, JaidynReiman, Benjamin K. Smith (BenCreating), Evert, Eliza Wyatt (ElizaWy), TheraHedwig, MuffinElZangano, Durrani, Johannes Sjölund (wulax), Stephen Challener (Redshrike)
 - **Licenses**: OGA-BY 3.0 / CC-BY-SA 3.0 / GPL 3.0（複数ライセンスのいずれかで利用可、本プロジェクトでは **CC-BY-SA 3.0** を選択）
