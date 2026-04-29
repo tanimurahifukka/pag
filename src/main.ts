@@ -530,6 +530,65 @@ class Agent {
   }
 }
 
+class Pet {
+  static FRAME_DURATION = 250
+  static FOLLOW_SPEED = 2.4
+  static IDLE_RADIUS = 0.05
+
+  sprite: THREE.Sprite
+  tex: THREE.Texture
+  owner: Agent
+  offsetFromOwner: THREE.Vector3
+  frame = 0
+  frameTime = 0
+
+  constructor(scene: THREE.Scene, spriteUrl: string, owner: Agent, offsetFromOwner: THREE.Vector3) {
+    this.owner = owner
+    this.offsetFromOwner = offsetFromOwner.clone()
+    const loader = new THREE.TextureLoader()
+    this.tex = loader.load(spriteUrl)
+    this.tex.magFilter = THREE.NearestFilter
+    this.tex.minFilter = THREE.NearestFilter
+    this.tex.colorSpace = THREE.SRGBColorSpace
+    this.tex.repeat.set(1 / 4, 1)
+    this.tex.offset.set(0, 0)
+
+    const mat = new THREE.SpriteMaterial({
+      map: this.tex,
+      transparent: true,
+      depthTest: true,
+    })
+    this.sprite = new THREE.Sprite(mat)
+    this.sprite.scale.set(0.7, 0.7, 1)
+    const start = owner.sprite.position.clone().add(offsetFromOwner)
+    start.y = 0.3
+    this.sprite.position.copy(start)
+    scene.add(this.sprite)
+  }
+
+  update(_now: number, dtMs: number) {
+    this.frameTime += dtMs
+    if (this.frameTime >= Pet.FRAME_DURATION) {
+      this.frame = (this.frame + 1) % 4
+      this.tex.offset.x = this.frame / 4
+      this.frameTime -= Pet.FRAME_DURATION
+    }
+
+    const desiredX = this.owner.sprite.position.x + this.offsetFromOwner.x
+    const desiredZ = this.owner.sprite.position.z + this.offsetFromOwner.z
+    const dx = desiredX - this.sprite.position.x
+    const dz = desiredZ - this.sprite.position.z
+    const dist = Math.sqrt(dx * dx + dz * dz)
+    if (dist > Pet.IDLE_RADIUS) {
+      const dt = dtMs / 1000
+      const step = Math.min(Pet.FOLLOW_SPEED * dt, dist)
+      this.sprite.position.x += (dx / dist) * step
+      this.sprite.position.z += (dz / dist) * step
+    }
+    this.sprite.position.y = 0.3
+  }
+}
+
 const frustumSize = 10
 const aspect = innerWidth / innerHeight
 
@@ -912,6 +971,55 @@ agents.push(
     slashUrl: '/assets/sprites/legacy/char_knight_slash.png',
   }),
 )
+agents.push(
+  new Agent(scene, '/assets/sprites/legacy/char_archer_walk.png', new THREE.Vector3(2.5, 1, -1), 'archer', {
+    sword: {
+      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+    },
+    slashUrl: '/assets/sprites/legacy/char_archer_slash.png',
+  }),
+)
+agents.push(
+  new Agent(scene, '/assets/sprites/legacy/char_healer_walk.png', new THREE.Vector3(-1, 1, 2.5), 'healer', {
+    sword: {
+      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+    },
+    slashUrl: '/assets/sprites/legacy/char_healer_slash.png',
+  }),
+)
+agents.push(
+  new Agent(scene, '/assets/sprites/legacy/char_peasant_walk.png', new THREE.Vector3(1, 1, -2.5), 'peasant', {
+    sword: {
+      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+    },
+    slashUrl: '/assets/sprites/legacy/char_peasant_slash.png',
+  }),
+)
+agents.push(
+  new Agent(scene, '/assets/sprites/legacy/char_rogue_walk.png', new THREE.Vector3(-2.5, 1, 0.5), 'rogue', {
+    sword: {
+      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+    },
+    slashUrl: '/assets/sprites/legacy/char_rogue_slash.png',
+  }),
+)
+
+const pets: Pet[] = []
+
+function findAgent(n: string): Agent | undefined {
+  return agents.find((a) => a.name === n)
+}
+
+const mainAgent = findAgent('main')
+const mageAgent = findAgent('mage')
+const knightAgent = findAgent('knight')
+if (mainAgent) pets.push(new Pet(scene, '/assets/sprites/pets/slime.png', mainAgent, new THREE.Vector3(-0.6, 0, 0.5)))
+if (mageAgent) pets.push(new Pet(scene, '/assets/sprites/pets/cat.png', mageAgent, new THREE.Vector3(0.6, 0, 0.5)))
+if (knightAgent) pets.push(new Pet(scene, '/assets/sprites/pets/dog.png', knightAgent, new THREE.Vector3(-0.6, 0, 0.5)))
 
 function dispatch(event: AgentEvent) {
   if (event.type === 'spawn') {
@@ -1041,6 +1149,7 @@ function animate() {
   const dtMs = lastTime === 0 ? 0 : now - lastTime
   lastTime = now
   for (const a of agents) a.update(now, dtMs)
+  for (const p of pets) p.update(now, dtMs)
   emberSpawnTime += dtMs
   while (emberSpawnTime >= 50) {
     emberSpawnTime -= 50
