@@ -138,6 +138,7 @@ class Agent {
   slashFrame = 0
   slashFrameTime = 0
   idleEndTime = 0
+  errorFlashEnd = 0
 
   constructor(
     scene: THREE.Scene,
@@ -345,6 +346,11 @@ class Agent {
     this.bubbleHideAt = performance.now() + durationMs
   }
 
+  flashError(durationMs = 600) {
+    this.errorFlashEnd = performance.now() + durationMs
+    this.updateLabel('✗ failed')
+  }
+
   pickNewTarget() {
     const r = Math.random()
     const fireplaceMark = Agent.landmarks.find((l) => l.name === 'fireplace')
@@ -393,6 +399,14 @@ class Agent {
     if (this.bubbleHideAt > 0 && now >= this.bubbleHideAt) {
       this.bubbleSprite.visible = false
       this.bubbleHideAt = 0
+    }
+
+    const bodyMat = this.sprite.material as THREE.SpriteMaterial
+    if (this.errorFlashEnd > 0 && now < this.errorFlashEnd) {
+      bodyMat.color.setRGB(1.0, 0.4, 0.35)
+    } else if (this.errorFlashEnd > 0) {
+      bodyMat.color.setRGB(1, 1, 1)
+      this.errorFlashEnd = 0
     }
 
     if (this.state === 'attacking') {
@@ -771,6 +785,52 @@ scene.add(directionalLight)
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
 scene.add(ambientLight)
 
+type ToD = 'morning' | 'day' | 'evening' | 'night'
+
+function timeOfDay(): ToD {
+  const h = new Date().getHours()
+  if (h >= 5 && h < 10) return 'morning'
+  if (h >= 10 && h < 17) return 'day'
+  if (h >= 17 && h < 20) return 'evening'
+  return 'night'
+}
+
+function applyTimeOfDay(tod: ToD) {
+  switch (tod) {
+    case 'morning':
+      ambientLight.color.setHex(0xfff0e0)
+      ambientLight.intensity = 0.7
+      directionalLight.color.setHex(0xfff5d8)
+      directionalLight.intensity = 1.6
+      scene.background = new THREE.Color(0x2a2520)
+      break
+    case 'day':
+      ambientLight.color.setHex(0xffffff)
+      ambientLight.intensity = 0.8
+      directionalLight.color.setHex(0xffffff)
+      directionalLight.intensity = 1.8
+      scene.background = new THREE.Color(0x303030)
+      break
+    case 'evening':
+      ambientLight.color.setHex(0xffd0a0)
+      ambientLight.intensity = 0.55
+      directionalLight.color.setHex(0xffb070)
+      directionalLight.intensity = 1.2
+      scene.background = new THREE.Color(0x2a1a14)
+      break
+    case 'night':
+      ambientLight.color.setHex(0x6080a0)
+      ambientLight.intensity = 0.35
+      directionalLight.color.setHex(0x8090a8)
+      directionalLight.intensity = 0.5
+      scene.background = new THREE.Color(0x0a0a14)
+      break
+  }
+}
+
+applyTimeOfDay(timeOfDay())
+setInterval(() => applyTimeOfDay(timeOfDay()), 60_000)
+
 let lastTime = 0
 let emberSpawnTime = 0
 
@@ -882,6 +942,19 @@ function handleHookEvent(payload: any) {
           window.pag.dispatch({ type: 'remove', agentId: agentName })
           taskAgents.delete(useId)
         }
+        return
+      }
+      const failed = !!(
+        payload?.tool_response?.error ||
+        payload?.tool_response?.is_error ||
+        payload?.error ||
+        payload?.success === false
+      )
+      if (failed) {
+        const a = agents.find((x) => x.name === 'main')
+        if (a) a.flashError()
+        pushLog(`main ✗ ${toolName} failed`, 'remove')
+        window.pag.dispatch({ type: 'idle', agentId: 'main', durationMs: 1500 })
         return
       }
       pushLog('main idle', 'idle')
