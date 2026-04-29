@@ -55,17 +55,76 @@ scene.add(directionalLight)
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
 scene.add(ambientLight)
 
-let frame = 0
-let lastFrameTime = 0
-const FRAME_DURATION = 120
+type AgentState = 'idle' | 'walking'
+
+const WALK_SPEED = 1.5
+const IDLE_MIN = 800
+const IDLE_MAX = 2200
+const WALK_FRAME_DURATION = 120
+const ARRIVAL_THRESHOLD = 0.05
+const FLOOR_HALF = 4
+
+let agentState: AgentState = 'idle'
+let target = new THREE.Vector3(0, 0.5, 0)
+let idleEndTime = 0
+let lastTime = 0
+let walkFrameTime = 0
+let walkFrame = 1
+let direction: 0 | 1 | 2 | 3 = 2
+
+function pickNewTarget() {
+  target.x = (Math.random() * 2 - 1) * FLOOR_HALF
+  target.z = (Math.random() * 2 - 1) * FLOOR_HALF
+  target.y = 0.5
+  agentState = 'walking'
+  walkFrame = 1
+  walkFrameTime = 0
+}
+
+function computeDirection(vx: number, vz: number): 0 | 1 | 2 | 3 {
+  if (Math.abs(vx) > Math.abs(vz)) return vx > 0 ? 3 : 1
+  return vz > 0 ? 2 : 0
+}
+
+function setSpriteFrame(frame: number, dir: 0 | 1 | 2 | 3) {
+  bodyTex.offset.x = frame / 9
+  bodyTex.offset.y = (3 - dir) / 4
+}
 
 function animate() {
   requestAnimationFrame(animate)
   const now = performance.now()
-  if (now - lastFrameTime >= FRAME_DURATION) {
-    frame = (frame + 1) % 9
-    bodyTex.offset.x = frame / 9
-    lastFrameTime = now
+  const dtMs = lastTime === 0 ? 0 : now - lastTime
+  const dt = dtMs / 1000
+  lastTime = now
+
+  if (agentState === 'idle') {
+    if (now >= idleEndTime) pickNewTarget()
+    setSpriteFrame(0, direction)
+  } else {
+    const dx = target.x - character.position.x
+    const dz = target.z - character.position.z
+    const dist = Math.sqrt(dx * dx + dz * dz)
+
+    if (dist < ARRIVAL_THRESHOLD) {
+      agentState = 'idle'
+      idleEndTime = now + IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN)
+      setSpriteFrame(0, direction)
+    } else {
+      const step = Math.min(WALK_SPEED * dt, dist)
+      const vx = dx / dist
+      const vz = dz / dist
+      character.position.x += vx * step
+      character.position.z += vz * step
+      direction = computeDirection(vx, vz)
+
+      walkFrameTime += dtMs
+      if (walkFrameTime >= WALK_FRAME_DURATION) {
+        walkFrame = walkFrame >= 8 ? 1 : walkFrame + 1
+        walkFrameTime -= WALK_FRAME_DURATION
+      }
+      setSpriteFrame(walkFrame, direction)
+    }
   }
   fireLight.intensity = 8 + Math.random() * 2
   renderer.render(scene, camera)
