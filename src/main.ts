@@ -498,6 +498,40 @@ Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2)
 const agents: Agent[] = []
 const taskAgents = new Map<string, string>()
 let taskCounter = 0
+const LOG_MAX = 10
+const logEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-log'
+  document.body.appendChild(el)
+  return el
+})()
+
+function pushLog(message: string, tag?: string) {
+  const now = new Date()
+  const t =
+    String(now.getHours()).padStart(2, '0') + ':' +
+    String(now.getMinutes()).padStart(2, '0') + ':' +
+    String(now.getSeconds()).padStart(2, '0')
+  const row = document.createElement('div')
+  row.className = 'pag-log-row'
+  const ts = document.createElement('span')
+  ts.className = 'pag-log-time'
+  ts.textContent = t
+  const msg = document.createElement('span')
+  msg.className = 'pag-log-msg' + (tag ? ' pag-log-tag-' + tag : '')
+  msg.textContent = message
+  row.appendChild(ts)
+  row.appendChild(msg)
+  logEl.insertBefore(row, logEl.firstChild)
+  // 古い行を fade させ、超過分は削除
+  const rows = logEl.querySelectorAll('.pag-log-row')
+  rows.forEach((r, i) => {
+    if (i >= 4) r.classList.add('fade')
+  })
+  while (logEl.childElementCount > LOG_MAX) {
+    logEl.removeChild(logEl.lastChild!)
+  }
+}
 agents.push(
   new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0), 'main', {
     sword: {
@@ -659,6 +693,7 @@ function handleHookEvent(payload: any) {
             tint: [0.85, 1.0, 0.85],
           })
         }
+        pushLog(`subagent ${agentName} <- Task`, 'spawn')
         window.pag.dispatch({ type: 'show-tool', agentId: agentName, toolName: 'Task' })
         window.pag.dispatch({ type: 'goto', agentId: agentName, landmark: 'fireplace' })
         return
@@ -667,10 +702,13 @@ function handleHookEvent(payload: any) {
       window.pag.dispatch({ type: 'show-tool', agentId: 'main', toolName })
 
       if (toolName === 'Bash' || toolName === 'Write' || toolName === 'Edit') {
+        pushLog(`main ⚔ ${toolName}`, 'attack')
         window.pag.dispatch({ type: 'attack', agentId: 'main' })
       } else if (toolName === 'Read' || toolName === 'Grep' || toolName === 'Glob') {
+        pushLog(`main → board (${toolName})`, 'board')
         window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'quest-board' })
       } else {
+        pushLog(`main → fireplace (${toolName})`, 'fire')
         window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'fireplace' })
       }
       return
@@ -680,19 +718,23 @@ function handleHookEvent(payload: any) {
         const useId: string = payload.tool_use_id || ''
         const agentName = taskAgents.get(useId)
         if (agentName) {
+          pushLog(`subagent ${agentName} done`, 'remove')
           window.pag.dispatch({ type: 'remove', agentId: agentName })
           taskAgents.delete(useId)
         }
         return
       }
+      pushLog('main idle', 'idle')
       window.pag.dispatch({ type: 'idle', agentId: 'main', durationMs: 1500 })
       return
     }
     case 'Stop': {
+      pushLog('main idle', 'idle')
       window.pag.dispatch({ type: 'idle', agentId: 'main', durationMs: 1500 })
       return
     }
     case 'SubagentStop': {
+      pushLog(`subagent stopped`, 'remove')
       const sessionId: string = payload.session_id || ''
       if (sessionId) {
         window.pag.dispatch({ type: 'remove', agentId: `sub-${sessionId.slice(0, 8)}` })
@@ -705,4 +747,5 @@ function handleHookEvent(payload: any) {
 setInterval(pollHookEvents, 500)
 void pollHookEvents()
 
+pushLog('pag ready', 'idle')
 animate()

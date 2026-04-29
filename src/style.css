@@ -1,1 +1,44 @@
 body { margin:0; overflow:hidden; }
+
+#pag-log {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  width: 320px;
+  max-height: 240px;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: monospace;
+  font-size: 12px;
+  color: #d8d2c0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 240, 220, 0.15);
+  border-radius: 6px;
+  padding: 8px 10px;
+  z-index: 9;
+  line-height: 1.45;
+}
+#pag-log .pag-log-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  opacity: 0.95;
+}
+#pag-log .pag-log-row.fade {
+  opacity: 0.55;
+}
+#pag-log .pag-log-time {
+  color: #8a847a;
+  flex-shrink: 0;
+}
+#pag-log .pag-log-msg {
+  flex-grow: 1;
+  word-break: break-word;
+}
+#pag-log .pag-log-tag-attack { color: #ff8a4a; }
+#pag-log .pag-log-tag-board  { color: #ffd76a; }
+#pag-log .pag-log-tag-fire   { color: #ff5a3a; }
+#pag-log .pag-log-tag-spawn  { color: #8aff8a; }
+#pag-log .pag-log-tag-remove { color: #ff7a7a; }
+#pag-log .pag-log-tag-idle   { color: #b8b0a0; }
