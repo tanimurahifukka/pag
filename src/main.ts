@@ -25,7 +25,9 @@ class Agent {
   static IDLE_MAX = 2200
   static WALK_FRAME_DURATION = 120
   static ARRIVAL_THRESHOLD = 0.05
+  static MIN_SEPARATION = 0.8
   static FLOOR_HALF = 4
+  static all: Agent[] = []
   static landmarks: { name: string; position: THREE.Vector3 }[] = []
 
   name: string
@@ -68,7 +70,7 @@ class Agent {
     scene.add(this.sprite)
 
     this.labelCanvas = document.createElement('canvas')
-    this.labelCanvas.width = 256
+    this.labelCanvas.width = 384
     this.labelCanvas.height = 64
     this.labelTex = new THREE.CanvasTexture(this.labelCanvas)
     this.labelTex.colorSpace = THREE.SRGBColorSpace
@@ -80,10 +82,11 @@ class Agent {
       depthTest: false,
     })
     this.labelSprite = new THREE.Sprite(labelMat)
-    this.labelSprite.scale.set(1.5, 0.375, 1)
+    this.labelSprite.scale.set(2.25, 0.375, 1)
     this.labelSprite.position.set(0, 1.2, 0)
     this.sprite.add(this.labelSprite)
     this.updateLabel('idle')
+    Agent.all.push(this)
   }
 
   goto(target: THREE.Vector3) {
@@ -174,6 +177,18 @@ class Agent {
     this.sprite.position.x += vx * step
     this.sprite.position.z += vz * step
     this.direction = this.computeDirection(vx, vz)
+
+    for (const other of Agent.all) {
+      if (other === this) continue
+      const ox = this.sprite.position.x - other.sprite.position.x
+      const oz = this.sprite.position.z - other.sprite.position.z
+      const odist = Math.sqrt(ox * ox + oz * oz)
+      if (odist > 0 && odist < Agent.MIN_SEPARATION) {
+        const push = (Agent.MIN_SEPARATION - odist) / odist
+        this.sprite.position.x += ox * push * 0.5
+        this.sprite.position.z += oz * push * 0.5
+      }
+    }
 
     this.walkFrameTime += dtMs
     if (this.walkFrameTime >= Agent.WALK_FRAME_DURATION) {
@@ -298,6 +313,8 @@ function dispatch(event: AgentEvent) {
     a.bodyTex.dispose()
     ;(a.sprite.material as THREE.SpriteMaterial).dispose()
     agents.splice(idx, 1)
+    const removeIdx = Agent.all.indexOf(a)
+    if (removeIdx !== -1) Agent.all.splice(removeIdx, 1)
     return
   }
 
