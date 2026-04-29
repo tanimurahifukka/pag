@@ -125,7 +125,7 @@ class Agent {
   static MIN_SEPARATION = 0.8
   static FLOOR_HALF = 4
   static all: Agent[] = []
-  static landmarks: { name: string; position: THREE.Vector3 }[] = []
+  static landmarks: { name: string; position: THREE.Vector3; faceDir: 0 | 1 | 2 | 3 }[] = []
   static EMOTES = ['♪', '!', '?', '♥', '☆', 'z…', '⋯', '♬']
 
   name: string
@@ -155,6 +155,10 @@ class Agent {
   idleEndTime = 0
   nextLookAroundAt = 0
   nextEmoteAt = 0
+  targetLandmark: string | null = null
+  currentLandmark: string | null = null
+  landmarkActionsLeft = 0
+  nextLandmarkActionAt = 0
   errorFlashEnd = 0
 
   constructor(
@@ -307,6 +311,7 @@ class Agent {
     this.walkFrame = 1
     this.walkFrameTime = 0
     const lm = Agent.landmarks.find((l) => l.position.distanceTo(target) < 0.01)
+    this.targetLandmark = lm ? lm.name : null
     this.updateLabel(lm ? `→ ${lm.name}` : `→ (${target.x.toFixed(1)}, ${target.z.toFixed(1)})`)
   }
 
@@ -381,13 +386,16 @@ class Agent {
 
     if (r < 0.5 && fireplaceMark) {
       this.target.copy(fireplaceMark.position)
+      this.targetLandmark = 'fireplace'
       this.updateLabel('→ fireplace')
     } else if (r < 0.75 && boardMark) {
       this.target.copy(boardMark.position)
+      this.targetLandmark = 'quest-board'
       this.updateLabel('→ quest-board')
     } else {
       this.target.x = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
       this.target.z = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
+      this.targetLandmark = null
       this.updateLabel(`→ (${this.target.x.toFixed(1)}, ${this.target.z.toFixed(1)})`)
     }
     this.target.y = 1
@@ -396,6 +404,8 @@ class Agent {
     this.walkFrameTime = 0
     this.nextLookAroundAt = 0
     this.nextEmoteAt = 0
+    this.currentLandmark = null
+    this.landmarkActionsLeft = 0
   }
 
   private setFrame(frame: number, dir: 0 | 1 | 2 | 3) {
@@ -452,7 +462,20 @@ class Agent {
     }
 
     if (this.state === 'idle') {
-      if (now >= this.idleEndTime) this.pickNewTarget()
+      if (this.landmarkActionsLeft > 0 && now >= this.nextLandmarkActionAt) {
+        this.landmarkActionsLeft -= 1
+        if (this.currentLandmark) {
+          const lm = Agent.landmarks.find((l) => l.name === this.currentLandmark)
+          if (lm) this.direction = lm.faceDir
+        }
+        this.setFrame(0, this.direction)
+        this.attack()
+        const interval =
+          this.currentLandmark === 'dummy' ? 1000 + Math.random() * 500 : 1200 + Math.random() * 800
+        this.nextLandmarkActionAt = now + interval
+        return
+      }
+      if (now >= this.idleEndTime && this.landmarkActionsLeft === 0) this.pickNewTarget()
       if (this.state !== 'idle') {
         this.setFrame(0, this.direction)
         return
@@ -489,7 +512,21 @@ class Agent {
     if (dist < Agent.ARRIVAL_THRESHOLD) {
       this.state = 'idle'
       this.idleEndTime = now + Agent.IDLE_MIN + Math.random() * (Agent.IDLE_MAX - Agent.IDLE_MIN)
-      this.updateLabel('idle')
+      this.currentLandmark = this.targetLandmark
+      if (this.currentLandmark) {
+        const lm = Agent.landmarks.find((l) => l.name === this.currentLandmark)
+        if (lm) this.direction = lm.faceDir
+      }
+      if (this.currentLandmark === 'workbench') {
+        this.landmarkActionsLeft = 2 + Math.floor(Math.random() * 2)
+        this.nextLandmarkActionAt = now + 400
+      } else if (this.currentLandmark === 'dummy') {
+        this.landmarkActionsLeft = 3 + Math.floor(Math.random() * 2)
+        this.nextLandmarkActionAt = now + 300
+      } else {
+        this.landmarkActionsLeft = 0
+      }
+      this.updateLabel(this.currentLandmark ? `at ${this.currentLandmark}` : 'idle')
       this.setFrame(0, this.direction)
       return
     }
@@ -852,12 +889,12 @@ door.add(doorHandle)
 door.position.set(3, 0, -3)
 scene.add(door)
 
-Agent.landmarks.push({ name: 'fireplace', position: new THREE.Vector3(-3, 1, -2) })
-Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2) })
-Agent.landmarks.push({ name: 'workbench', position: new THREE.Vector3(0, 1, -2) })
-Agent.landmarks.push({ name: 'library', position: new THREE.Vector3(-3, 1, 2) })
-Agent.landmarks.push({ name: 'dummy', position: new THREE.Vector3(0, 1, 2) })
-Agent.landmarks.push({ name: 'door', position: new THREE.Vector3(3, 1, -2) })
+Agent.landmarks.push({ name: 'fireplace', position: new THREE.Vector3(-3, 1, -2), faceDir: 0 })
+Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2), faceDir: 2 })
+Agent.landmarks.push({ name: 'workbench', position: new THREE.Vector3(0, 1, -2), faceDir: 0 })
+Agent.landmarks.push({ name: 'library', position: new THREE.Vector3(-3, 1, 2), faceDir: 2 })
+Agent.landmarks.push({ name: 'dummy', position: new THREE.Vector3(0, 1, 2), faceDir: 2 })
+Agent.landmarks.push({ name: 'door', position: new THREE.Vector3(3, 1, -2), faceDir: 0 })
 
 const agents: Agent[] = []
 const taskAgents = new Map<string, string>()
