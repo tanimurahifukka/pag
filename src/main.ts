@@ -605,8 +605,33 @@ questBoard.add(questBoardPost)
 questBoard.position.set(3, 0, 3)
 scene.add(questBoard)
 
+const door = new THREE.Group()
+const doorFrame = new THREE.Mesh(
+  new THREE.BoxGeometry(1.0, 1.9, 0.15),
+  new THREE.MeshStandardMaterial({ color: 0x2a1a10 }),
+)
+doorFrame.position.y = 0.95
+door.add(doorFrame)
+
+const doorPanel = new THREE.Mesh(
+  new THREE.BoxGeometry(0.8, 1.7, 0.05),
+  new THREE.MeshStandardMaterial({ color: 0x5a3a1e }),
+)
+doorPanel.position.set(0, 0.95, 0.06)
+door.add(doorPanel)
+
+const doorHandle = new THREE.Mesh(
+  new THREE.BoxGeometry(0.06, 0.06, 0.06),
+  new THREE.MeshStandardMaterial({ color: 0xc0a050, emissive: 0x402a10, emissiveIntensity: 0.3 }),
+)
+doorHandle.position.set(0.25, 0.95, 0.12)
+door.add(doorHandle)
+door.position.set(3, 0, -3)
+scene.add(door)
+
 Agent.landmarks.push({ name: 'fireplace', position: new THREE.Vector3(-3, 1, -2) })
 Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2) })
+Agent.landmarks.push({ name: 'door', position: new THREE.Vector3(3, 1, -2) })
 
 const agents: Agent[] = []
 const taskAgents = new Map<string, string>()
@@ -805,6 +830,16 @@ function handleHookEvent(payload: any) {
   const toolName: string = payload.tool_name || (payload.tool_input && payload.tool_input.tool_name) || ''
 
   switch (hookName) {
+    case 'SessionStart': {
+      const m = agents.find((a) => a.name === 'main')
+      if (m) {
+        m.sprite.position.set(3, 1, -2)
+        m.direction = 1
+        window.pag.dispatch({ type: 'goto-xy', agentId: 'main', x: 0, z: 0 })
+      }
+      pushLog('main entered through door', 'spawn')
+      return
+    }
     case 'PreToolUse': {
       if (toolName === 'Task') {
         const useId: string = payload.tool_use_id || `auto-${taskCounter++}`
@@ -854,8 +889,8 @@ function handleHookEvent(payload: any) {
       return
     }
     case 'Stop': {
-      pushLog('main idle', 'idle')
-      window.pag.dispatch({ type: 'idle', agentId: 'main', durationMs: 1500 })
+      window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'door' })
+      pushLog('main → door (session end)', 'idle')
       return
     }
     case 'SubagentStop': {
