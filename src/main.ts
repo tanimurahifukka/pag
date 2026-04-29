@@ -15,7 +15,7 @@ interface PagApi {
   list(): string[]
 }
 
-type ParticleKind = 'ember' | 'dust'
+type ParticleKind = 'ember' | 'dust' | 'heart'
 
 declare global {
   interface Window {
@@ -32,13 +32,15 @@ class Particle {
 
   constructor(scene: THREE.Scene, kind: ParticleKind) {
     this.kind = kind
+    const color = kind === 'ember' ? 0xff8c3a : kind === 'dust' ? 0xc8b8a0 : 0xff7aa8
+    const scale = kind === 'ember' ? 0.08 : kind === 'dust' ? 0.12 : 0.14
     const mat = new THREE.SpriteMaterial({
-      color: kind === 'ember' ? 0xff8c3a : 0xc8b8a0,
+      color,
       transparent: true,
       depthTest: false,
     })
     this.sprite = new THREE.Sprite(mat)
-    this.sprite.scale.set(kind === 'ember' ? 0.08 : 0.12, kind === 'ember' ? 0.08 : 0.12, 1)
+    this.sprite.scale.set(scale, scale, 1)
     this.sprite.renderOrder = 5
     this.velocity = new THREE.Vector3()
     scene.add(this.sprite)
@@ -54,12 +56,19 @@ class Particle {
         1.2 + Math.random() * 0.8,
         (Math.random() - 0.5) * 0.4,
       )
-    } else {
+    } else if (this.kind === 'dust') {
       this.maxLife = 350 + Math.random() * 200
       this.velocity.set(
         (Math.random() - 0.5) * 0.5,
         0.4 + Math.random() * 0.4,
         (Math.random() - 0.5) * 0.5,
+      )
+    } else if (this.kind === 'heart') {
+      this.maxLife = 900 + Math.random() * 400
+      this.velocity.set(
+        (Math.random() - 0.5) * 0.6,
+        0.7 + Math.random() * 0.3,
+        (Math.random() - 0.5) * 0.6,
       )
     }
     this.sprite.visible = true
@@ -81,7 +90,7 @@ class Particle {
 
     if (this.kind === 'ember') {
       this.velocity.y -= 0.5 * dt
-    } else {
+    } else if (this.kind === 'dust') {
       this.velocity.multiplyScalar(0.9)
     }
 
@@ -94,6 +103,11 @@ class Particle {
       const g = 0.55 + (1 - t) * 0.3
       const b = 0.2 + (1 - t) * 0.2
       mat.color.setRGB(r, g, b)
+    } else if (this.kind === 'heart') {
+      const pulse = 1 + Math.sin(this.lifetime / 100) * 0.15
+      const baseScale = 0.14
+      this.sprite.scale.set(baseScale * pulse, baseScale * pulse, 1)
+      mat.color.setRGB(1.0, 0.45 + Math.sin(this.lifetime / 200) * 0.1, 0.65)
     }
 
     return true
@@ -112,6 +126,7 @@ class Agent {
   static FLOOR_HALF = 4
   static all: Agent[] = []
   static landmarks: { name: string; position: THREE.Vector3 }[] = []
+  static EMOTES = ['♪', '!', '?', '♥', '☆', 'z…', '⋯', '♬']
 
   name: string
   sprite: THREE.Sprite
@@ -142,6 +157,7 @@ class Agent {
   slashFrameTime = 0
   idleEndTime = 0
   nextLookAroundAt = 0
+  nextEmoteAt = 0
   errorFlashEnd = 0
 
   constructor(
@@ -312,6 +328,7 @@ class Agent {
     }
     this.updateLabel('⚔ attack')
     this.nextLookAroundAt = 0
+    this.nextEmoteAt = 0
   }
 
   private finishAttack() {
@@ -427,6 +444,7 @@ class Agent {
     this.walkFrame = 1
     this.walkFrameTime = 0
     this.nextLookAroundAt = 0
+    this.nextEmoteAt = 0
   }
 
   private setFrame(frame: number, dir: 0 | 1 | 2 | 3) {
@@ -506,6 +524,16 @@ class Agent {
         const candidates = choices.filter((d) => d !== this.direction)
         this.direction = candidates[Math.floor(Math.random() * candidates.length)] as 0 | 1 | 2 | 3
         this.nextLookAroundAt = now + 2000 + Math.random() * 2000
+      }
+      if (this.nextEmoteAt === 0) {
+        this.nextEmoteAt = now + 4000 + Math.random() * 6000
+      }
+      if (now >= this.nextEmoteAt && this.idleEndTime - now > 800 && now > this.bubbleHideAt) {
+        if (Math.random() < 0.3) {
+          const emote = Agent.EMOTES[Math.floor(Math.random() * Agent.EMOTES.length)]
+          this.showTool(emote, 1500)
+        }
+        this.nextEmoteAt = now + 4000 + Math.random() * 6000
       }
       this.setFrame(0, this.direction)
       return
@@ -663,8 +691,10 @@ function emitParticle(kind: ParticleKind, x: number, y: number, z: number) {
   if (!p) p = new Particle(scene, kind)
   if (p.kind !== kind) {
     const mat = p.sprite.material as THREE.SpriteMaterial
-    mat.color.set(kind === 'ember' ? 0xff8c3a : 0xc8b8a0)
-    p.sprite.scale.setScalar(kind === 'ember' ? 0.08 : 0.12)
+    const color = kind === 'ember' ? 0xff8c3a : kind === 'dust' ? 0xc8b8a0 : 0xff7aa8
+    const scale = kind === 'ember' ? 0.08 : kind === 'dust' ? 0.12 : 0.14
+    mat.color.set(color)
+    p.sprite.scale.setScalar(scale)
     p.kind = kind
   }
   p.spawn(x, y, z)
@@ -1090,6 +1120,25 @@ function animate() {
       0.7 + Math.random() * 0.3,
       -3 + 0.4 + Math.random() * 0.1,
     )
+  }
+  if (Math.random() < 0.04) {
+    for (let i = 0; i < Agent.all.length; i++) {
+      const a = Agent.all[i]
+      if (a.state !== 'idle') continue
+      for (let j = i + 1; j < Agent.all.length; j++) {
+        const b = Agent.all[j]
+        if (b.state !== 'idle') continue
+        const dx = a.sprite.position.x - b.sprite.position.x
+        const dz = a.sprite.position.z - b.sprite.position.z
+        const dist2 = dx * dx + dz * dz
+        if (dist2 < 1.4 * 1.4) {
+          const mx = (a.sprite.position.x + b.sprite.position.x) / 2
+          const my = 1.6 + Math.random() * 0.3
+          const mz = (a.sprite.position.z + b.sprite.position.z) / 2
+          emitParticle('heart', mx, my, mz)
+        }
+      }
+    }
   }
   updateParticles(dtMs)
   fireLight.intensity = 8 + Math.random() * 2
