@@ -31,6 +31,10 @@ class Agent {
   name: string
   sprite: THREE.Sprite
   bodyTex: THREE.Texture
+  labelSprite: THREE.Sprite
+  labelTex: THREE.CanvasTexture
+  labelCanvas: HTMLCanvasElement
+  currentIntent = 'idle'
   state: 'idle' | 'walking' = 'idle'
   target: THREE.Vector3
   direction: 0 | 1 | 2 | 3 = 2
@@ -62,6 +66,24 @@ class Agent {
     this.sprite.scale.set(2, 2, 1)
     this.sprite.position.copy(startPos)
     scene.add(this.sprite)
+
+    this.labelCanvas = document.createElement('canvas')
+    this.labelCanvas.width = 256
+    this.labelCanvas.height = 64
+    this.labelTex = new THREE.CanvasTexture(this.labelCanvas)
+    this.labelTex.colorSpace = THREE.SRGBColorSpace
+    this.labelTex.minFilter = THREE.LinearFilter
+    this.labelTex.magFilter = THREE.LinearFilter
+    const labelMat = new THREE.SpriteMaterial({
+      map: this.labelTex,
+      transparent: true,
+      depthTest: false,
+    })
+    this.labelSprite = new THREE.Sprite(labelMat)
+    this.labelSprite.scale.set(1.5, 0.375, 1)
+    this.labelSprite.position.set(0, 1.2, 0)
+    this.sprite.add(this.labelSprite)
+    this.updateLabel('idle')
   }
 
   goto(target: THREE.Vector3) {
@@ -69,11 +91,28 @@ class Agent {
     this.state = 'walking'
     this.walkFrame = 1
     this.walkFrameTime = 0
+    const lm = Agent.landmarks.find((l) => l.position.distanceTo(target) < 0.01)
+    this.updateLabel(lm ? `→ ${lm.name}` : `→ (${target.x.toFixed(1)}, ${target.z.toFixed(1)})`)
   }
 
   setIdle(durationMs: number) {
     this.state = 'idle'
     this.idleEndTime = performance.now() + durationMs
+    this.updateLabel(`idle (${(durationMs / 1000).toFixed(1)}s)`)
+  }
+
+  private updateLabel(intent: string) {
+    this.currentIntent = intent
+    const ctx = this.labelCanvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, this.labelCanvas.width, this.labelCanvas.height)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+    ctx.fillRect(0, 0, this.labelCanvas.width, this.labelCanvas.height)
+    ctx.fillStyle = '#ffffff'
+    ctx.font = '32px monospace'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(`${this.name}: ${intent}`, 8, this.labelCanvas.height / 2)
+    this.labelTex.needsUpdate = true
   }
 
   pickNewTarget() {
@@ -83,11 +122,14 @@ class Agent {
 
     if (r < 0.5 && fireplaceMark) {
       this.target.copy(fireplaceMark.position)
+      this.updateLabel('→ fireplace')
     } else if (r < 0.75 && boardMark) {
       this.target.copy(boardMark.position)
+      this.updateLabel('→ quest-board')
     } else {
       this.target.x = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
       this.target.z = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
+      this.updateLabel(`→ (${this.target.x.toFixed(1)}, ${this.target.z.toFixed(1)})`)
     }
     this.target.y = 1
     this.state = 'walking'
@@ -121,6 +163,7 @@ class Agent {
     if (dist < Agent.ARRIVAL_THRESHOLD) {
       this.state = 'idle'
       this.idleEndTime = now + Agent.IDLE_MIN + Math.random() * (Agent.IDLE_MAX - Agent.IDLE_MIN)
+      this.updateLabel('idle')
       this.setFrame(0, this.direction)
       return
     }
