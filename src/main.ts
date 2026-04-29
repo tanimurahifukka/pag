@@ -4,6 +4,7 @@ import './style.css'
 type AgentEvent =
   | { type: 'goto'; agentId: string; landmark: string }
   | { type: 'goto-xy'; agentId: string; x: number; z: number }
+  | { type: 'attack'; agentId: string }
   | { type: 'idle'; agentId: string; durationMs?: number }
   | { type: 'spawn'; agentId: string; tint?: [number, number, number] }
   | { type: 'remove'; agentId: string }
@@ -24,6 +25,8 @@ class Agent {
   static IDLE_MIN = 800
   static IDLE_MAX = 2200
   static WALK_FRAME_DURATION = 120
+  static SLASH_FRAME_DURATION = 80
+  static SLASH_FRAME_COUNT = 6
   static ARRIVAL_THRESHOLD = 0.05
   static MIN_SEPARATION = 0.8
   static FLOOR_HALF = 4
@@ -33,6 +36,7 @@ class Agent {
   name: string
   sprite: THREE.Sprite
   bodyTex: THREE.Texture
+  slashTex?: THREE.Texture
   swordBgTex?: THREE.Texture
   swordFgTex?: THREE.Texture
   swordBg?: THREE.Sprite
@@ -41,11 +45,14 @@ class Agent {
   labelTex: THREE.CanvasTexture
   labelCanvas: HTMLCanvasElement
   currentIntent = 'idle'
-  state: 'idle' | 'walking' = 'idle'
+  state: 'idle' | 'walking' | 'attacking' = 'idle'
+  prevState: 'idle' | 'walking' = 'idle'
   target: THREE.Vector3
   direction: 0 | 1 | 2 | 3 = 2
   walkFrame = 1
   walkFrameTime = 0
+  slashFrame = 0
+  slashFrameTime = 0
   idleEndTime = 0
 
   constructor(
@@ -53,7 +60,7 @@ class Agent {
     spriteUrl: string,
     startPos: THREE.Vector3,
     name: string,
-    options?: { tint?: THREE.Color; sword?: { bg: string; fg: string } },
+    options?: { tint?: THREE.Color; sword?: { bg: string; fg: string }; slashUrl?: string },
   ) {
     this.name = name
     this.target = new THREE.Vector3().copy(startPos)
@@ -129,7 +136,42 @@ class Agent {
     this.labelSprite.renderOrder = 10
     this.sprite.add(this.labelSprite)
     this.updateLabel('idle')
+
+    if (options?.slashUrl) {
+      const slashLoader = new THREE.TextureLoader()
+      this.slashTex = slashLoader.load(options.slashUrl)
+      this.slashTex.magFilter = THREE.NearestFilter
+      this.slashTex.minFilter = THREE.NearestFilter
+      this.slashTex.colorSpace = THREE.SRGBColorSpace
+      this.slashTex.repeat.set(1 / 6, 1 / 4)
+      this.slashTex.offset.set(0, 1 / 4)
+    }
+
     Agent.all.push(this)
+  }
+
+  attack() {
+    if (!this.slashTex) return
+    this.prevState = this.state === 'attacking' ? this.prevState : (this.state as 'idle' | 'walking')
+    this.state = 'attacking'
+    this.slashFrame = 0
+    this.slashFrameTime = 0
+    ;(this.sprite.material as THREE.SpriteMaterial).map = this.slashTex
+    ;(this.sprite.material as THREE.SpriteMaterial).needsUpdate = true
+    if (this.swordBg) this.swordBg.visible = false
+    if (this.swordFg) this.swordFg.visible = false
+    this.updateLabel('⚔ attack')
+  }
+
+  private finishAttack() {
+    ;(this.sprite.material as THREE.SpriteMaterial).map = this.bodyTex
+    ;(this.sprite.material as THREE.SpriteMaterial).needsUpdate = true
+    if (this.swordBg) this.swordBg.visible = true
+    if (this.swordFg) this.swordFg.visible = true
+    this.state = 'idle'
+    this.idleEndTime = performance.now() + Agent.IDLE_MIN + Math.random() * (Agent.IDLE_MAX - Agent.IDLE_MIN)
+    this.updateLabel('idle')
+    this.setFrame(0, this.direction)
   }
 
   goto(target: THREE.Vector3) {
@@ -205,6 +247,23 @@ class Agent {
 
   update(now: number, dtMs: number) {
     const dt = dtMs / 1000
+
+    if (this.state === 'attacking') {
+      this.slashFrameTime += dtMs
+      if (this.slashFrameTime >= Agent.SLASH_FRAME_DURATION) {
+        this.slashFrame += 1
+        this.slashFrameTime -= Agent.SLASH_FRAME_DURATION
+        if (this.slashFrame >= Agent.SLASH_FRAME_COUNT) {
+          this.finishAttack()
+          return
+        }
+      }
+      if (this.slashTex) {
+        this.slashTex.offset.x = this.slashFrame / Agent.SLASH_FRAME_COUNT
+        this.slashTex.offset.y = (3 - this.direction) / 4
+      }
+      return
+    }
 
     if (this.state === 'idle') {
       if (now >= this.idleEndTime) this.pickNewTarget()
@@ -375,6 +434,7 @@ agents.push(
       bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
       fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
     },
+    slashUrl: '/assets/sprites/body_male_slash.png',
   }),
 )
 agents.push(
@@ -383,6 +443,7 @@ agents.push(
       bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
       fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
     },
+    slashUrl: '/assets/sprites/body_female_slash.png',
   }),
 )
 agents.push(
@@ -391,6 +452,7 @@ agents.push(
       bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
       fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
     },
+    slashUrl: '/assets/sprites/body_muscular_slash.png',
   }),
 )
 
@@ -409,6 +471,7 @@ function dispatch(event: AgentEvent) {
           bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
           fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
         },
+        slashUrl: '/assets/sprites/body_male_slash.png',
       },
     )
     agents.push(a)
@@ -421,6 +484,7 @@ function dispatch(event: AgentEvent) {
     const a = agents[idx]
     scene.remove(a.sprite)
     a.bodyTex.dispose()
+    a.slashTex?.dispose()
     ;(a.sprite.material as THREE.SpriteMaterial).dispose()
     agents.splice(idx, 1)
     const removeIdx = Agent.all.indexOf(a)
@@ -432,12 +496,17 @@ function dispatch(event: AgentEvent) {
   if (!target) return
 
   if (event.type === 'goto') {
+    if (target.state === 'attacking') return
     const lm = Agent.landmarks.find((l) => l.name === event.landmark)
     if (!lm) return
     target.goto(lm.position)
   } else if (event.type === 'goto-xy') {
+    if (target.state === 'attacking') return
     target.goto(new THREE.Vector3(event.x, 1, event.z))
+  } else if (event.type === 'attack') {
+    target.attack()
   } else if (event.type === 'idle') {
+    if (target.state === 'attacking') return
     target.setIdle(event.durationMs ?? 1000)
   }
 }
