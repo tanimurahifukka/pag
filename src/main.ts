@@ -138,6 +138,7 @@ class Agent {
   slashFrame = 0
   slashFrameTime = 0
   idleEndTime = 0
+  nextLookAroundAt = 0
   errorFlashEnd = 0
 
   constructor(
@@ -265,6 +266,7 @@ class Agent {
     if (this.swordBg) this.swordBg.visible = false
     if (this.swordFg) this.swordFg.visible = false
     this.updateLabel('⚔ attack')
+    this.nextLookAroundAt = 0
   }
 
   private finishAttack() {
@@ -371,6 +373,7 @@ class Agent {
     this.state = 'walking'
     this.walkFrame = 1
     this.walkFrameTime = 0
+    this.nextLookAroundAt = 0
   }
 
   private setFrame(frame: number, dir: 0 | 1 | 2 | 3) {
@@ -428,6 +431,21 @@ class Agent {
 
     if (this.state === 'idle') {
       if (now >= this.idleEndTime) this.pickNewTarget()
+      if (this.state !== 'idle') {
+        this.setFrame(0, this.direction)
+        return
+      }
+      // idle 中、2〜4 秒ごとにランダムな方向に体を向ける（ただし next pickNewTarget まで残り時間が十分ある時のみ）
+      if (this.nextLookAroundAt === 0) {
+        this.nextLookAroundAt = now + 2000 + Math.random() * 2000
+      }
+      if (now >= this.nextLookAroundAt && this.idleEndTime - now > 600) {
+        // 4 方向のうち現在と異なる方向をランダムに選ぶ
+        const choices: (0 | 1 | 2 | 3)[] = [0, 1, 2, 3]
+        const candidates = choices.filter((d) => d !== this.direction)
+        this.direction = candidates[Math.floor(Math.random() * candidates.length)] as 0 | 1 | 2 | 3
+        this.nextLookAroundAt = now + 2000 + Math.random() * 2000
+      }
       this.setFrame(0, this.direction)
       return
     }
@@ -785,6 +803,26 @@ function pushLog(message: string, tag?: string) {
     logEl.removeChild(logEl.lastChild!)
   }
 }
+
+let totalEvents = 0
+let lastEventTime = 0
+
+const statusEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-status'
+  el.innerHTML = '<span class="pag-dot"></span><span class="pag-events">0</span><span>events</span>'
+  document.body.appendChild(el)
+  return el
+})()
+const eventsCountEl = statusEl.querySelector('.pag-events') as HTMLSpanElement
+
+function refreshStatus() {
+  const isLive = lastEventTime > 0 && performance.now() - lastEventTime < 5000
+  statusEl.classList.toggle('live', isLive)
+  eventsCountEl.textContent = String(totalEvents)
+}
+setInterval(refreshStatus, 500)
+
 agents.push(
   new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0), 'main', {
     sword: {
@@ -1004,6 +1042,9 @@ function attackWhenNearLandmark(agentId: string, landmark: string) {
 
 function handleHookEvent(payload: any) {
   if (!payload || typeof payload !== 'object') return
+  totalEvents += 1
+  lastEventTime = performance.now()
+  refreshStatus()
   const hookName: string = payload.hook_event_name || ''
   const toolName: string = payload.tool_name || (payload.tool_input && payload.tool_input.tool_name) || ''
 
