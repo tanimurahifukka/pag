@@ -701,6 +701,44 @@ const floor = new THREE.Mesh(
 floor.rotation.x = -Math.PI / 2
 scene.add(floor)
 
+const wallHeight = 2.4
+const wallThickness = 0.3
+const floorSize = 10
+const wallY = wallHeight / 2
+
+const walls = new THREE.Group()
+const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3a30 })
+
+const northWall = new THREE.Mesh(
+  new THREE.BoxGeometry(floorSize + wallThickness * 2, wallHeight, wallThickness),
+  wallMaterial,
+)
+northWall.position.set(0, wallY, -floorSize / 2 - wallThickness / 2)
+walls.add(northWall)
+
+const southWall = new THREE.Mesh(
+  new THREE.BoxGeometry(floorSize + wallThickness * 2, wallHeight, wallThickness),
+  wallMaterial,
+)
+southWall.position.set(0, wallY, floorSize / 2 + wallThickness / 2)
+walls.add(southWall)
+
+const eastWall = new THREE.Mesh(
+  new THREE.BoxGeometry(wallThickness, wallHeight, floorSize),
+  wallMaterial,
+)
+eastWall.position.set(floorSize / 2 + wallThickness / 2, wallY, 0)
+walls.add(eastWall)
+
+const westWall = new THREE.Mesh(
+  new THREE.BoxGeometry(wallThickness, wallHeight, floorSize),
+  wallMaterial,
+)
+westWall.position.set(-floorSize / 2 - wallThickness / 2, wallY, 0)
+walls.add(westWall)
+
+scene.add(walls)
+
 const fireplace = new THREE.Group()
 const fireplaceFrame = new THREE.Mesh(
   new THREE.BoxGeometry(1.2, 1.5, 0.6),
