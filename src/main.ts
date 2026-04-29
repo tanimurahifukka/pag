@@ -1,6 +1,94 @@
 import * as THREE from 'three'
 import './style.css'
 
+class Agent {
+  static WALK_SPEED = 1.5
+  static IDLE_MIN = 800
+  static IDLE_MAX = 2200
+  static WALK_FRAME_DURATION = 120
+  static ARRIVAL_THRESHOLD = 0.05
+  static FLOOR_HALF = 4
+
+  sprite: THREE.Sprite
+  bodyTex: THREE.Texture
+  state: 'idle' | 'walking' = 'idle'
+  target = new THREE.Vector3(0, 1, 0)
+  direction: 0 | 1 | 2 | 3 = 2
+  walkFrame = 1
+  walkFrameTime = 0
+  idleEndTime = 0
+
+  constructor(scene: THREE.Scene, spriteUrl: string, startPos: THREE.Vector3) {
+    const loader = new THREE.TextureLoader()
+    this.bodyTex = loader.load(spriteUrl)
+    this.bodyTex.magFilter = THREE.NearestFilter
+    this.bodyTex.minFilter = THREE.NearestFilter
+    this.bodyTex.colorSpace = THREE.SRGBColorSpace
+    this.bodyTex.repeat.set(1 / 9, 1 / 4)
+    this.bodyTex.offset.set(0, 1 / 4)
+
+    const mat = new THREE.SpriteMaterial({ map: this.bodyTex })
+    this.sprite = new THREE.Sprite(mat)
+    this.sprite.scale.set(2, 2, 1)
+    this.sprite.position.copy(startPos)
+    scene.add(this.sprite)
+  }
+
+  pickNewTarget() {
+    this.target.x = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
+    this.target.z = (Math.random() * 2 - 1) * Agent.FLOOR_HALF
+    this.target.y = 1
+    this.state = 'walking'
+    this.walkFrame = 1
+    this.walkFrameTime = 0
+  }
+
+  private setFrame(frame: number, dir: 0 | 1 | 2 | 3) {
+    this.bodyTex.offset.x = frame / 9
+    this.bodyTex.offset.y = (3 - dir) / 4
+  }
+
+  private computeDirection(vx: number, vz: number): 0 | 1 | 2 | 3 {
+    if (Math.abs(vx) > Math.abs(vz)) return vx > 0 ? 3 : 1
+    return vz > 0 ? 2 : 0
+  }
+
+  update(now: number, dtMs: number) {
+    const dt = dtMs / 1000
+
+    if (this.state === 'idle') {
+      if (now >= this.idleEndTime) this.pickNewTarget()
+      this.setFrame(0, this.direction)
+      return
+    }
+
+    const dx = this.target.x - this.sprite.position.x
+    const dz = this.target.z - this.sprite.position.z
+    const dist = Math.sqrt(dx * dx + dz * dz)
+
+    if (dist < Agent.ARRIVAL_THRESHOLD) {
+      this.state = 'idle'
+      this.idleEndTime = now + Agent.IDLE_MIN + Math.random() * (Agent.IDLE_MAX - Agent.IDLE_MIN)
+      this.setFrame(0, this.direction)
+      return
+    }
+
+    const step = Math.min(Agent.WALK_SPEED * dt, dist)
+    const vx = dx / dist
+    const vz = dz / dist
+    this.sprite.position.x += vx * step
+    this.sprite.position.z += vz * step
+    this.direction = this.computeDirection(vx, vz)
+
+    this.walkFrameTime += dtMs
+    if (this.walkFrameTime >= Agent.WALK_FRAME_DURATION) {
+      this.walkFrame = this.walkFrame >= 8 ? 1 : this.walkFrame + 1
+      this.walkFrameTime -= Agent.WALK_FRAME_DURATION
+    }
+    this.setFrame(this.walkFrame, this.direction)
+  }
+}
+
 const frustumSize = 10
 const aspect = innerWidth / innerHeight
 
@@ -30,19 +118,45 @@ const floor = new THREE.Mesh(
 floor.rotation.x = -Math.PI / 2
 scene.add(floor)
 
-const loader = new THREE.TextureLoader()
-const bodyTex = loader.load('/assets/sprites/body_male_walk.png')
-bodyTex.magFilter = THREE.NearestFilter
-bodyTex.minFilter = THREE.NearestFilter
-bodyTex.colorSpace = THREE.SRGBColorSpace
-bodyTex.repeat.set(1 / 9, 1 / 4)
-bodyTex.offset.set(0, 1 / 4)
+const fireplace = new THREE.Group()
+const fireplaceFrame = new THREE.Mesh(
+  new THREE.BoxGeometry(1.2, 1.5, 0.6),
+  new THREE.MeshStandardMaterial({ color: 0x3a3030 }),
+)
+fireplaceFrame.position.y = 0.75
+fireplace.add(fireplaceFrame)
 
-const bodyMat = new THREE.SpriteMaterial({ map: bodyTex })
-const character = new THREE.Sprite(bodyMat)
-character.scale.set(1, 1, 1)
-character.position.set(0, 0.5, 0)
-scene.add(character)
+const fireplaceOpening = new THREE.Mesh(
+  new THREE.BoxGeometry(0.7, 0.8, 0.1),
+  new THREE.MeshStandardMaterial({
+    color: 0xff4a1a,
+    emissive: 0xff4a1a,
+    emissiveIntensity: 1.5,
+  }),
+)
+fireplaceOpening.position.set(0, 0.75, 0.35)
+fireplace.add(fireplaceOpening)
+fireplace.position.set(-3, 0, -3)
+scene.add(fireplace)
+
+const questBoard = new THREE.Group()
+const questBoardPanel = new THREE.Mesh(
+  new THREE.BoxGeometry(1.5, 1.2, 0.1),
+  new THREE.MeshStandardMaterial({ color: 0x6b3a1a }),
+)
+questBoardPanel.position.y = 1.4
+questBoard.add(questBoardPanel)
+
+const questBoardPost = new THREE.Mesh(
+  new THREE.BoxGeometry(0.15, 1.4, 0.15),
+  new THREE.MeshStandardMaterial({ color: 0x4a2a10 }),
+)
+questBoardPost.position.y = 0.7
+questBoard.add(questBoardPost)
+questBoard.position.set(3, 0, 3)
+scene.add(questBoard)
+
+const agent = new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0))
 
 const fireLight = new THREE.PointLight(0xff8c3a, 8, 15)
 fireLight.position.set(-3, 2, -3)
@@ -55,77 +169,14 @@ scene.add(directionalLight)
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
 scene.add(ambientLight)
 
-type AgentState = 'idle' | 'walking'
-
-const WALK_SPEED = 1.5
-const IDLE_MIN = 800
-const IDLE_MAX = 2200
-const WALK_FRAME_DURATION = 120
-const ARRIVAL_THRESHOLD = 0.05
-const FLOOR_HALF = 4
-
-let agentState: AgentState = 'idle'
-let target = new THREE.Vector3(0, 0.5, 0)
-let idleEndTime = 0
 let lastTime = 0
-let walkFrameTime = 0
-let walkFrame = 1
-let direction: 0 | 1 | 2 | 3 = 2
-
-function pickNewTarget() {
-  target.x = (Math.random() * 2 - 1) * FLOOR_HALF
-  target.z = (Math.random() * 2 - 1) * FLOOR_HALF
-  target.y = 0.5
-  agentState = 'walking'
-  walkFrame = 1
-  walkFrameTime = 0
-}
-
-function computeDirection(vx: number, vz: number): 0 | 1 | 2 | 3 {
-  if (Math.abs(vx) > Math.abs(vz)) return vx > 0 ? 3 : 1
-  return vz > 0 ? 2 : 0
-}
-
-function setSpriteFrame(frame: number, dir: 0 | 1 | 2 | 3) {
-  bodyTex.offset.x = frame / 9
-  bodyTex.offset.y = (3 - dir) / 4
-}
 
 function animate() {
   requestAnimationFrame(animate)
   const now = performance.now()
   const dtMs = lastTime === 0 ? 0 : now - lastTime
-  const dt = dtMs / 1000
   lastTime = now
-
-  if (agentState === 'idle') {
-    if (now >= idleEndTime) pickNewTarget()
-    setSpriteFrame(0, direction)
-  } else {
-    const dx = target.x - character.position.x
-    const dz = target.z - character.position.z
-    const dist = Math.sqrt(dx * dx + dz * dz)
-
-    if (dist < ARRIVAL_THRESHOLD) {
-      agentState = 'idle'
-      idleEndTime = now + IDLE_MIN + Math.random() * (IDLE_MAX - IDLE_MIN)
-      setSpriteFrame(0, direction)
-    } else {
-      const step = Math.min(WALK_SPEED * dt, dist)
-      const vx = dx / dist
-      const vz = dz / dist
-      character.position.x += vx * step
-      character.position.z += vz * step
-      direction = computeDirection(vx, vz)
-
-      walkFrameTime += dtMs
-      if (walkFrameTime >= WALK_FRAME_DURATION) {
-        walkFrame = walkFrame >= 8 ? 1 : walkFrame + 1
-        walkFrameTime -= WALK_FRAME_DURATION
-      }
-      setSpriteFrame(walkFrame, direction)
-    }
-  }
+  agent.update(now, dtMs)
   fireLight.intensity = 8 + Math.random() * 2
   renderer.render(scene, camera)
 }
