@@ -619,6 +619,104 @@ questBoard.add(questBoardPost)
 questBoard.position.set(3, 0, 3)
 scene.add(questBoard)
 
+const workbench = new THREE.Group()
+const workbenchTop = new THREE.Mesh(
+  new THREE.BoxGeometry(1.2, 0.15, 0.6),
+  new THREE.MeshStandardMaterial({ color: 0x8c5a2a }),
+)
+workbenchTop.position.y = 0.85
+workbench.add(workbenchTop)
+
+for (const x of [-0.5, 0.5]) {
+  for (const z of [-0.25, 0.25]) {
+    const leg = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.85, 0.1),
+      new THREE.MeshStandardMaterial({ color: 0x6b3a1a }),
+    )
+    leg.position.set(x, 0.425, z)
+    workbench.add(leg)
+  }
+}
+
+const workbenchAnvil = new THREE.Mesh(
+  new THREE.BoxGeometry(0.3, 0.2, 0.2),
+  new THREE.MeshStandardMaterial({ color: 0x404040, emissive: 0x303030, emissiveIntensity: 0.2 }),
+)
+workbenchAnvil.position.set(0, 1.05, 0)
+workbench.add(workbenchAnvil)
+workbench.position.set(0, 0, -3)
+scene.add(workbench)
+
+const library = new THREE.Group()
+const libraryBody = new THREE.Mesh(
+  new THREE.BoxGeometry(1.4, 1.6, 0.4),
+  new THREE.MeshStandardMaterial({ color: 0x4a2a10 }),
+)
+libraryBody.position.y = 0.8
+library.add(libraryBody)
+
+for (const y of [0.55, 1.05]) {
+  const shelf = new THREE.Mesh(
+    new THREE.BoxGeometry(1.3, 0.05, 0.35),
+    new THREE.MeshStandardMaterial({ color: 0x6b3a1a }),
+  )
+  shelf.position.y = y
+  library.add(shelf)
+}
+
+const bookColors = [0x8a3a3a, 0x3a5a8a, 0x6a8a3a, 0xa86a3a, 0x6a3a6a, 0x3a8a8a]
+const bookPositions = [
+  [-0.45, 0.75],
+  [-0.15, 0.75],
+  [0.15, 0.75],
+  [-0.15, 1.25],
+  [0.15, 1.25],
+  [0.45, 1.25],
+]
+bookColors.forEach((color, i) => {
+  const book = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18, 0.35, 0.18),
+    new THREE.MeshStandardMaterial({ color }),
+  )
+  const [x, y] = bookPositions[i]
+  book.position.set(x, y, 0.13)
+  library.add(book)
+})
+
+library.position.set(-3, 0, 3)
+scene.add(library)
+
+const trainingDummy = new THREE.Group()
+const dummyPost = new THREE.Mesh(
+  new THREE.BoxGeometry(0.15, 1.4, 0.15),
+  new THREE.MeshStandardMaterial({ color: 0x4a2a10 }),
+)
+dummyPost.position.y = 0.7
+trainingDummy.add(dummyPost)
+
+const dummyBody = new THREE.Mesh(
+  new THREE.BoxGeometry(0.6, 0.7, 0.4),
+  new THREE.MeshStandardMaterial({ color: 0xa88c4a }),
+)
+dummyBody.position.y = 1.4
+trainingDummy.add(dummyBody)
+
+const dummyHead = new THREE.Mesh(
+  new THREE.BoxGeometry(0.4, 0.4, 0.4),
+  new THREE.MeshStandardMaterial({ color: 0xa88c4a }),
+)
+dummyHead.position.y = 1.95
+trainingDummy.add(dummyHead)
+
+const dummyTargetBand = new THREE.Mesh(
+  new THREE.BoxGeometry(0.62, 0.1, 0.42),
+  new THREE.MeshStandardMaterial({ color: 0xc04040, emissive: 0x402020, emissiveIntensity: 0.2 }),
+)
+dummyTargetBand.position.y = 1.4
+trainingDummy.add(dummyTargetBand)
+trainingDummy.position.set(0, 0, 3)
+scene.add(trainingDummy)
+
 const door = new THREE.Group()
 const doorFrame = new THREE.Mesh(
   new THREE.BoxGeometry(1.0, 1.9, 0.15),
@@ -645,6 +743,9 @@ scene.add(door)
 
 Agent.landmarks.push({ name: 'fireplace', position: new THREE.Vector3(-3, 1, -2) })
 Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2) })
+Agent.landmarks.push({ name: 'workbench', position: new THREE.Vector3(0, 1, -2) })
+Agent.landmarks.push({ name: 'library', position: new THREE.Vector3(-3, 1, 2) })
+Agent.landmarks.push({ name: 'dummy', position: new THREE.Vector3(0, 1, 2) })
 Agent.landmarks.push({ name: 'door', position: new THREE.Vector3(3, 1, -2) })
 
 const agents: Agent[] = []
@@ -884,6 +985,23 @@ async function pollHookEvents() {
   }
 }
 
+function attackWhenNearLandmark(agentId: string, landmark: string) {
+  const startedAt = performance.now()
+  const maxWaitMs = 6000
+  const tick = () => {
+    const agent = agents.find((a) => a.name === agentId)
+    const mark = Agent.landmarks.find((l) => l.name === landmark)
+    if (!agent || !mark) return
+    const dist = Math.hypot(agent.sprite.position.x - mark.position.x, agent.sprite.position.z - mark.position.z)
+    if (dist <= Agent.ARRIVAL_THRESHOLD + 0.1 || performance.now() - startedAt >= maxWaitMs) {
+      window.pag.dispatch({ type: 'attack', agentId })
+      return
+    }
+    window.setTimeout(tick, 80)
+  }
+  window.setTimeout(tick, 80)
+}
+
 function handleHookEvent(payload: any) {
   if (!payload || typeof payload !== 'object') return
   const hookName: string = payload.hook_event_name || ''
@@ -921,15 +1039,22 @@ function handleHookEvent(payload: any) {
 
       window.pag.dispatch({ type: 'show-tool', agentId: 'main', toolName })
 
-      if (toolName === 'Bash' || toolName === 'Write' || toolName === 'Edit') {
-        pushLog(`main ⚔ ${toolName}`, 'attack')
-        window.pag.dispatch({ type: 'attack', agentId: 'main' })
+      if (toolName === 'Bash') {
+        window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'workbench' })
+        pushLog(`main → workbench (Bash)`, 'attack')
+      } else if (toolName === 'Write' || toolName === 'Edit') {
+        window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'dummy' })
+        attackWhenNearLandmark('main', 'dummy')
+        pushLog(`main ⚔ dummy (${toolName})`, 'attack')
       } else if (toolName === 'Read' || toolName === 'Grep' || toolName === 'Glob') {
-        pushLog(`main → board (${toolName})`, 'board')
+        window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'library' })
+        pushLog(`main → library (${toolName})`, 'board')
+      } else if (toolName === 'WebFetch' || toolName === 'WebSearch') {
         window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'quest-board' })
+        pushLog(`main → board (${toolName})`, 'board')
       } else {
-        pushLog(`main → fireplace (${toolName})`, 'fire')
         window.pag.dispatch({ type: 'goto', agentId: 'main', landmark: 'fireplace' })
+        pushLog(`main → fireplace (${toolName})`, 'fire')
       }
       return
     }
