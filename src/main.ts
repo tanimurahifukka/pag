@@ -134,11 +134,8 @@ class Agent {
   slashTex?: THREE.Texture
   swordBgTex?: THREE.Texture
   swordFgTex?: THREE.Texture
-  hairWalkTex?: THREE.Texture
-  hairSlashTex?: THREE.Texture
   swordBg?: THREE.Sprite
   swordFg?: THREE.Sprite
-  hairSprite?: THREE.Sprite
   labelSprite: THREE.Sprite
   labelTex: THREE.CanvasTexture
   labelCanvas: HTMLCanvasElement
@@ -169,7 +166,6 @@ class Agent {
       tint?: THREE.Color
       sword?: { bg: string; fg: string }
       slashUrl?: string
-      hair?: { walk: string; slash?: string }
     },
   ) {
     this.name = name
@@ -224,7 +220,7 @@ class Agent {
       this.swordFg = new THREE.Sprite(swordFgMat)
       this.swordFg.scale.set(1, 1, 1)
       this.swordFg.position.set(0, 0, 0)
-      this.swordFg.renderOrder = 3
+      this.swordFg.renderOrder = 2
       this.sprite.add(this.swordFg)
     }
 
@@ -266,36 +262,6 @@ class Agent {
     this.bubbleSprite.visible = false
     this.sprite.add(this.bubbleSprite)
 
-    if (options?.hair) {
-      const hairLoader = new THREE.TextureLoader()
-      this.hairWalkTex = hairLoader.load(options.hair.walk)
-      this.hairWalkTex.magFilter = THREE.NearestFilter
-      this.hairWalkTex.minFilter = THREE.NearestFilter
-      this.hairWalkTex.colorSpace = THREE.SRGBColorSpace
-      this.hairWalkTex.repeat.set(1 / 9, 1 / 4)
-      this.hairWalkTex.offset.set(0, 1 / 4)
-
-      if (options.hair.slash) {
-        this.hairSlashTex = hairLoader.load(options.hair.slash)
-        this.hairSlashTex.magFilter = THREE.NearestFilter
-        this.hairSlashTex.minFilter = THREE.NearestFilter
-        this.hairSlashTex.colorSpace = THREE.SRGBColorSpace
-        this.hairSlashTex.repeat.set(1 / 6, 1 / 4)
-        this.hairSlashTex.offset.set(0, 1 / 4)
-      }
-
-      const hairMat = new THREE.SpriteMaterial({
-        map: this.hairWalkTex,
-        transparent: true,
-        depthTest: false,
-      })
-      this.hairSprite = new THREE.Sprite(hairMat)
-      this.hairSprite.scale.set(1, 1, 1)
-      this.hairSprite.position.set(0, 0, 0)
-      this.hairSprite.renderOrder = 2
-      this.sprite.add(this.hairSprite)
-    }
-
     if (options?.slashUrl) {
       const slashLoader = new THREE.TextureLoader()
       this.slashTex = slashLoader.load(options.slashUrl)
@@ -319,13 +285,6 @@ class Agent {
     ;(this.sprite.material as THREE.SpriteMaterial).needsUpdate = true
     if (this.swordBg) this.swordBg.visible = false
     if (this.swordFg) this.swordFg.visible = false
-    if (this.hairSprite && this.hairSlashTex) {
-      const hairMat = this.hairSprite.material as THREE.SpriteMaterial
-      hairMat.map = this.hairSlashTex
-      hairMat.needsUpdate = true
-    } else if (this.hairSprite) {
-      this.hairSprite.visible = false
-    }
     this.updateLabel('⚔ attack')
     this.nextLookAroundAt = 0
     this.nextEmoteAt = 0
@@ -336,14 +295,6 @@ class Agent {
     ;(this.sprite.material as THREE.SpriteMaterial).needsUpdate = true
     if (this.swordBg) this.swordBg.visible = true
     if (this.swordFg) this.swordFg.visible = true
-    if (this.hairSprite && this.hairWalkTex) {
-      const hairMat = this.hairSprite.material as THREE.SpriteMaterial
-      hairMat.map = this.hairWalkTex
-      hairMat.needsUpdate = true
-      this.hairSprite.visible = true
-    } else if (this.hairSprite) {
-      this.hairSprite.visible = true
-    }
     this.state = 'idle'
     this.idleEndTime = performance.now() + Agent.IDLE_MIN + Math.random() * (Agent.IDLE_MAX - Agent.IDLE_MIN)
     this.updateLabel('idle')
@@ -460,10 +411,6 @@ class Agent {
       this.swordFgTex.offset.x = ox
       this.swordFgTex.offset.y = oy
     }
-    if (this.hairWalkTex) {
-      this.hairWalkTex.offset.x = ox
-      this.hairWalkTex.offset.y = oy
-    }
   }
 
   private computeDirection(vx: number, vz: number): 0 | 1 | 2 | 3 {
@@ -500,10 +447,6 @@ class Agent {
       if (this.slashTex) {
         this.slashTex.offset.x = this.slashFrame / Agent.SLASH_FRAME_COUNT
         this.slashTex.offset.y = (3 - this.direction) / 4
-      }
-      if (this.hairSlashTex) {
-        this.hairSlashTex.offset.x = this.slashFrame / Agent.SLASH_FRAME_COUNT
-        this.hairSlashTex.offset.y = (3 - this.direction) / 4
       }
       return
     }
@@ -915,71 +858,58 @@ function refreshStatus() {
 setInterval(refreshStatus, 500)
 
 agents.push(
-  new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0), 'main', {
+  new Agent(scene, '/assets/sprites/legacy/char_main_walk.png', new THREE.Vector3(0, 1, 0), 'main', {
     sword: {
       bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
       fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
     },
-    slashUrl: '/assets/sprites/body_male_slash.png',
+    slashUrl: '/assets/sprites/legacy/char_main_slash.png',
   }),
 )
 agents.push(
-  new Agent(scene, '/assets/sprites/body_female_walk.png', new THREE.Vector3(-1.5, 1, 1.5), 'sub-1', {
+  new Agent(scene, '/assets/sprites/legacy/char_sub-1_walk.png', new THREE.Vector3(-1.5, 1, 1.5), 'sub-1', {
     sword: {
       bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
       fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
     },
-    slashUrl: '/assets/sprites/body_female_slash.png',
+    slashUrl: '/assets/sprites/legacy/char_sub-1_slash.png',
   }),
 )
 agents.push(
-  new Agent(scene, '/assets/sprites/body_muscular_walk.png', new THREE.Vector3(1.5, 1, -1.5), 'sub-2', {
+  new Agent(scene, '/assets/sprites/legacy/char_sub-2_walk.png', new THREE.Vector3(1.5, 1, -1.5), 'sub-2', {
     sword: {
       bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
       fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
     },
-    slashUrl: '/assets/sprites/body_muscular_slash.png',
+    slashUrl: '/assets/sprites/legacy/char_sub-2_slash.png',
   }),
 )
 agents.push(
-  new Agent(scene, '/assets/sprites/body_teen_walk.png', new THREE.Vector3(-2.5, 1, -1), 'scout', {
+  new Agent(scene, '/assets/sprites/legacy/char_scout_walk.png', new THREE.Vector3(-2.5, 1, -1), 'scout', {
     sword: {
       bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
       fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
     },
-    slashUrl: '/assets/sprites/body_teen_slash.png',
-    hair: {
-      walk: '/assets/sprites/hair/pigtails_walk.png',
-      slash: '/assets/sprites/hair/pigtails_slash.png',
-    },
+    slashUrl: '/assets/sprites/legacy/char_scout_slash.png',
   }),
 )
 agents.push(
-  new Agent(scene, '/assets/sprites/body_female_walk.png', new THREE.Vector3(2.5, 1, 1), 'mage', {
-    tint: new THREE.Color(0.9, 0.95, 1.05),
+  new Agent(scene, '/assets/sprites/legacy/char_mage_walk.png', new THREE.Vector3(2.5, 1, 1), 'mage', {
+    tint: new THREE.Color(0.95, 0.95, 1.05),
     sword: {
       bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
       fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
     },
-    slashUrl: '/assets/sprites/body_female_slash.png',
-    hair: {
-      walk: '/assets/sprites/hair/long_walk.png',
-      slash: '/assets/sprites/hair/long_slash.png',
-    },
+    slashUrl: '/assets/sprites/legacy/char_mage_slash.png',
   }),
 )
 agents.push(
-  new Agent(scene, '/assets/sprites/body_female_walk.png', new THREE.Vector3(0, 1, 2.5), 'knight', {
-    tint: new THREE.Color(1.05, 0.95, 0.9),
+  new Agent(scene, '/assets/sprites/legacy/char_knight_walk.png', new THREE.Vector3(0, 1, 2.5), 'knight', {
     sword: {
       bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
       fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
     },
-    slashUrl: '/assets/sprites/body_female_slash.png',
-    hair: {
-      walk: '/assets/sprites/hair/bob_walk.png',
-      slash: '/assets/sprites/hair/bob_slash.png',
-    },
+    slashUrl: '/assets/sprites/legacy/char_knight_slash.png',
   }),
 )
 
@@ -989,7 +919,7 @@ function dispatch(event: AgentEvent) {
     const tint = event.tint ? new THREE.Color(event.tint[0], event.tint[1], event.tint[2]) : undefined
     const a = new Agent(
       scene,
-      '/assets/sprites/body_male_walk.png',
+      '/assets/sprites/legacy/char_main_walk.png',
       new THREE.Vector3(0, 1, 0),
       event.agentId,
       {
@@ -998,7 +928,7 @@ function dispatch(event: AgentEvent) {
           bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
           fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
         },
-        slashUrl: '/assets/sprites/body_male_slash.png',
+        slashUrl: '/assets/sprites/legacy/char_main_slash.png',
       },
     )
     agents.push(a)
