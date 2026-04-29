@@ -94,6 +94,24 @@ Browser (src/main.ts)
        └─ payload を AgentEvent に変換 → window.pag.dispatch()
 ```
 
+#### ワンライナー自動インストール
+
+`pag` のディレクトリで:
+
+```bash
+npm run install-hook
+```
+
+これで `~/.claude/settings.json` に PreToolUse / PostToolUse / SessionStart / Stop / SubagentStop の 5 種フックが追加される。pag リポ内の `scripts/claude-pag-hook.sh` を絶対パスで参照するため、リポを移動した場合は再度 `npm run install-hook` を叩くこと。既存の hook 設定は維持される（pag 由来のエントリは `__pag__: true` マーカーで識別、重複登録はしない）。
+
+削除:
+
+```bash
+npm run uninstall-hook
+```
+
+サンプル JSON は [examples/.claude-pag-settings.json](./examples/.claude-pag-settings.json) を参照。
+
 ### Claude Code 側 (`~/.claude/settings.json`) のサンプル
 
 ```json
