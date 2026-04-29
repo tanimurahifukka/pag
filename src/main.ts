@@ -33,6 +33,10 @@ class Agent {
   name: string
   sprite: THREE.Sprite
   bodyTex: THREE.Texture
+  swordBgTex?: THREE.Texture
+  swordFgTex?: THREE.Texture
+  swordBg?: THREE.Sprite
+  swordFg?: THREE.Sprite
   labelSprite: THREE.Sprite
   labelTex: THREE.CanvasTexture
   labelCanvas: HTMLCanvasElement
@@ -49,7 +53,7 @@ class Agent {
     spriteUrl: string,
     startPos: THREE.Vector3,
     name: string,
-    tint?: THREE.Color,
+    options?: { tint?: THREE.Color; sword?: { bg: string; fg: string } },
   ) {
     this.name = name
     this.target = new THREE.Vector3().copy(startPos)
@@ -63,11 +67,49 @@ class Agent {
     this.bodyTex.offset.set(0, 1 / 4)
 
     const mat = new THREE.SpriteMaterial({ map: this.bodyTex })
-    if (tint) mat.color.copy(tint)
+    if (options?.tint) mat.color.copy(options.tint)
     this.sprite = new THREE.Sprite(mat)
     this.sprite.scale.set(2, 2, 1)
     this.sprite.position.copy(startPos)
+    this.sprite.renderOrder = 1
     scene.add(this.sprite)
+
+    if (options?.sword) {
+      const bgLoader = new THREE.TextureLoader()
+      this.swordBgTex = bgLoader.load(options.sword.bg)
+      this.swordBgTex.magFilter = THREE.NearestFilter
+      this.swordBgTex.minFilter = THREE.NearestFilter
+      this.swordBgTex.colorSpace = THREE.SRGBColorSpace
+      this.swordBgTex.repeat.set(1 / 9, 1 / 4)
+      this.swordBgTex.offset.set(0, 1 / 4)
+      const swordBgMat = new THREE.SpriteMaterial({
+        map: this.swordBgTex,
+        transparent: true,
+        depthTest: false,
+      })
+      this.swordBg = new THREE.Sprite(swordBgMat)
+      this.swordBg.scale.set(1, 1, 1)
+      this.swordBg.position.set(0, 0, 0)
+      this.swordBg.renderOrder = 0
+      this.sprite.add(this.swordBg)
+
+      this.swordFgTex = bgLoader.load(options.sword.fg)
+      this.swordFgTex.magFilter = THREE.NearestFilter
+      this.swordFgTex.minFilter = THREE.NearestFilter
+      this.swordFgTex.colorSpace = THREE.SRGBColorSpace
+      this.swordFgTex.repeat.set(1 / 9, 1 / 4)
+      this.swordFgTex.offset.set(0, 1 / 4)
+      const swordFgMat = new THREE.SpriteMaterial({
+        map: this.swordFgTex,
+        transparent: true,
+        depthTest: false,
+      })
+      this.swordFg = new THREE.Sprite(swordFgMat)
+      this.swordFg.scale.set(1, 1, 1)
+      this.swordFg.position.set(0, 0, 0)
+      this.swordFg.renderOrder = 2
+      this.sprite.add(this.swordFg)
+    }
 
     this.labelCanvas = document.createElement('canvas')
     this.labelCanvas.width = 384
@@ -84,6 +126,7 @@ class Agent {
     this.labelSprite = new THREE.Sprite(labelMat)
     this.labelSprite.scale.set(2.25, 0.375, 1)
     this.labelSprite.position.set(0, 1.2, 0)
+    this.labelSprite.renderOrder = 10
     this.sprite.add(this.labelSprite)
     this.updateLabel('idle')
     Agent.all.push(this)
@@ -141,8 +184,18 @@ class Agent {
   }
 
   private setFrame(frame: number, dir: 0 | 1 | 2 | 3) {
-    this.bodyTex.offset.x = frame / 9
-    this.bodyTex.offset.y = (3 - dir) / 4
+    const ox = frame / 9
+    const oy = (3 - dir) / 4
+    this.bodyTex.offset.x = ox
+    this.bodyTex.offset.y = oy
+    if (this.swordBgTex) {
+      this.swordBgTex.offset.x = ox
+      this.swordBgTex.offset.y = oy
+    }
+    if (this.swordFgTex) {
+      this.swordFgTex.offset.x = ox
+      this.swordFgTex.offset.y = oy
+    }
   }
 
   private computeDirection(vx: number, vz: number): 0 | 1 | 2 | 3 {
@@ -316,12 +369,29 @@ Agent.landmarks.push({ name: 'fireplace', position: new THREE.Vector3(-3, 1, -2)
 Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2) })
 
 const agents: Agent[] = []
-agents.push(new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0), 'main'))
 agents.push(
-  new Agent(scene, '/assets/sprites/body_female_walk.png', new THREE.Vector3(-1.5, 1, 1.5), 'sub-1'),
+  new Agent(scene, '/assets/sprites/body_male_walk.png', new THREE.Vector3(0, 1, 0), 'main', {
+    sword: {
+      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+    },
+  }),
 )
 agents.push(
-  new Agent(scene, '/assets/sprites/body_muscular_walk.png', new THREE.Vector3(1.5, 1, -1.5), 'sub-2'),
+  new Agent(scene, '/assets/sprites/body_female_walk.png', new THREE.Vector3(-1.5, 1, 1.5), 'sub-1', {
+    sword: {
+      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+    },
+  }),
+)
+agents.push(
+  new Agent(scene, '/assets/sprites/body_muscular_walk.png', new THREE.Vector3(1.5, 1, -1.5), 'sub-2', {
+    sword: {
+      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+    },
+  }),
 )
 
 function dispatch(event: AgentEvent) {
@@ -333,7 +403,13 @@ function dispatch(event: AgentEvent) {
       '/assets/sprites/body_male_walk.png',
       new THREE.Vector3(0, 1, 0),
       event.agentId,
-      tint,
+      {
+        tint,
+        sword: {
+          bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+          fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+        },
+      },
     )
     agents.push(a)
     return
