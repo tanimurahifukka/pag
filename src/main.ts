@@ -15,9 +15,88 @@ interface PagApi {
   list(): string[]
 }
 
+type ParticleKind = 'ember' | 'dust'
+
 declare global {
   interface Window {
     pag: PagApi
+  }
+}
+
+class Particle {
+  sprite: THREE.Sprite
+  velocity: THREE.Vector3
+  lifetime = 0
+  maxLife = 1500
+  kind: ParticleKind
+
+  constructor(scene: THREE.Scene, kind: ParticleKind) {
+    this.kind = kind
+    const mat = new THREE.SpriteMaterial({
+      color: kind === 'ember' ? 0xff8c3a : 0xc8b8a0,
+      transparent: true,
+      depthTest: false,
+    })
+    this.sprite = new THREE.Sprite(mat)
+    this.sprite.scale.set(kind === 'ember' ? 0.08 : 0.12, kind === 'ember' ? 0.08 : 0.12, 1)
+    this.sprite.renderOrder = 5
+    this.velocity = new THREE.Vector3()
+    scene.add(this.sprite)
+  }
+
+  spawn(x: number, y: number, z: number) {
+    this.sprite.position.set(x, y, z)
+    this.lifetime = 0
+    if (this.kind === 'ember') {
+      this.maxLife = 1400 + Math.random() * 800
+      this.velocity.set(
+        (Math.random() - 0.5) * 0.4,
+        1.2 + Math.random() * 0.8,
+        (Math.random() - 0.5) * 0.4,
+      )
+    } else {
+      this.maxLife = 350 + Math.random() * 200
+      this.velocity.set(
+        (Math.random() - 0.5) * 0.5,
+        0.4 + Math.random() * 0.4,
+        (Math.random() - 0.5) * 0.5,
+      )
+    }
+    this.sprite.visible = true
+    const mat = this.sprite.material as THREE.SpriteMaterial
+    mat.opacity = 1
+  }
+
+  update(dtMs: number): boolean {
+    this.lifetime += dtMs
+    if (this.lifetime >= this.maxLife) {
+      this.sprite.visible = false
+      return false
+    }
+
+    const dt = dtMs / 1000
+    this.sprite.position.x += this.velocity.x * dt
+    this.sprite.position.y += this.velocity.y * dt
+    this.sprite.position.z += this.velocity.z * dt
+
+    if (this.kind === 'ember') {
+      this.velocity.y -= 0.5 * dt
+    } else {
+      this.velocity.multiplyScalar(0.9)
+    }
+
+    const t = this.lifetime / this.maxLife
+    const mat = this.sprite.material as THREE.SpriteMaterial
+    mat.opacity = 1 - t
+
+    if (this.kind === 'ember') {
+      const r = 1.0
+      const g = 0.55 + (1 - t) * 0.3
+      const b = 0.2 + (1 - t) * 0.2
+      mat.color.setRGB(r, g, b)
+    }
+
+    return true
   }
 }
 
@@ -374,6 +453,14 @@ class Agent {
     if (this.walkFrameTime >= Agent.WALK_FRAME_DURATION) {
       this.walkFrame = this.walkFrame >= 8 ? 1 : this.walkFrame + 1
       this.walkFrameTime -= Agent.WALK_FRAME_DURATION
+      if (this.walkFrame === 1 || this.walkFrame === 5) {
+        emitParticle(
+          'dust',
+          this.sprite.position.x + (Math.random() - 0.5) * 0.2,
+          0.05,
+          this.sprite.position.z + (Math.random() - 0.5) * 0.2,
+        )
+      }
     }
     this.setFrame(this.walkFrame, this.direction)
   }
@@ -474,6 +561,32 @@ fireplaceOpening.position.set(0, 0.75, 0.35)
 fireplace.add(fireplaceOpening)
 fireplace.position.set(-3, 0, -3)
 scene.add(fireplace)
+
+const activeParticles: Particle[] = []
+const particlePool: Particle[] = []
+
+function emitParticle(kind: ParticleKind, x: number, y: number, z: number) {
+  let p = particlePool.pop()
+  if (!p) p = new Particle(scene, kind)
+  if (p.kind !== kind) {
+    const mat = p.sprite.material as THREE.SpriteMaterial
+    mat.color.set(kind === 'ember' ? 0xff8c3a : 0xc8b8a0)
+    p.sprite.scale.setScalar(kind === 'ember' ? 0.08 : 0.12)
+    p.kind = kind
+  }
+  p.spawn(x, y, z)
+  activeParticles.push(p)
+}
+
+function updateParticles(dtMs: number) {
+  for (let i = activeParticles.length - 1; i >= 0; i--) {
+    if (!activeParticles[i].update(dtMs)) {
+      const dead = activeParticles[i]
+      activeParticles.splice(i, 1)
+      particlePool.push(dead)
+    }
+  }
+}
 
 const questBoard = new THREE.Group()
 const questBoardPanel = new THREE.Mesh(
@@ -634,6 +747,7 @@ const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
 scene.add(ambientLight)
 
 let lastTime = 0
+let emberSpawnTime = 0
 
 function animate() {
   requestAnimationFrame(animate)
@@ -641,6 +755,17 @@ function animate() {
   const dtMs = lastTime === 0 ? 0 : now - lastTime
   lastTime = now
   for (const a of agents) a.update(now, dtMs)
+  emberSpawnTime += dtMs
+  while (emberSpawnTime >= 50) {
+    emberSpawnTime -= 50
+    emitParticle(
+      'ember',
+      -3 + (Math.random() - 0.5) * 0.5,
+      0.7 + Math.random() * 0.3,
+      -3 + 0.4 + Math.random() * 0.1,
+    )
+  }
+  updateParticles(dtMs)
   fireLight.intensity = 8 + Math.random() * 2
   renderer.render(scene, camera)
 }
