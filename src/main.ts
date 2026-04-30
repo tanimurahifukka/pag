@@ -15,7 +15,17 @@ interface PagApi {
   list(): string[]
 }
 
-type ParticleKind = 'ember' | 'dust' | 'heart' | 'smoke' | 'spell' | 'arrow'
+type ParticleKind =
+  | 'ember'
+  | 'dust'
+  | 'heart'
+  | 'smoke'
+  | 'spell'
+  | 'arrow'
+  | 'rain'
+  | 'butterfly'
+  | 'firefly'
+  | 'star'
 
 declare global {
   interface Window {
@@ -38,12 +48,20 @@ class Particle {
       kind === 'heart' ? 0xff7aa8 :
       kind === 'smoke' ? 0xa8a8a8 :
       kind === 'spell' ? 0xa060ff :
+      kind === 'rain' ? 0x88a8d0 :
+      kind === 'butterfly' ? 0xffd0e0 :
+      kind === 'firefly' ? 0xfff080 :
+      kind === 'star' ? 0xffffff :
       0xffd870
     const scale =
       kind === 'ember' ? 0.08 :
       kind === 'dust' ? 0.12 :
       kind === 'heart' ? 0.14 :
       kind === 'smoke' ? 0.18 :
+      kind === 'rain' ? 0.04 :
+      kind === 'butterfly' ? 0.10 :
+      kind === 'firefly' ? 0.06 :
+      kind === 'star' ? 0.08 :
       0.10
     const mat = new THREE.SpriteMaterial({
       color,
@@ -104,6 +122,30 @@ class Particle {
         (Math.random() - 0.3) * 0.5,
         (Math.random() - 0.5) * 0.6,
       )
+    } else if (this.kind === 'rain') {
+      this.maxLife = 1500
+      this.velocity.set(
+        -1.5 + (Math.random() - 0.5) * 0.4,
+        -8 - Math.random() * 2,
+        -0.5 + (Math.random() - 0.5) * 0.4,
+      )
+    } else if (this.kind === 'butterfly') {
+      this.maxLife = 4000 + Math.random() * 2000
+      this.velocity.set(
+        (Math.random() - 0.5) * 1.0,
+        (Math.random() - 0.5) * 0.6,
+        (Math.random() - 0.5) * 1.0,
+      )
+    } else if (this.kind === 'firefly') {
+      this.maxLife = 3000 + Math.random() * 2000
+      this.velocity.set(
+        (Math.random() - 0.5) * 0.4,
+        (Math.random() - 0.3) * 0.4,
+        (Math.random() - 0.5) * 0.4,
+      )
+    } else if (this.kind === 'star') {
+      this.maxLife = 1200 + Math.random() * 600
+      this.velocity.set(4 + Math.random() * 2, 0, 0)
     }
     this.sprite.visible = true
     const mat = this.sprite.material as THREE.SpriteMaterial
@@ -128,6 +170,10 @@ class Particle {
       this.velocity.multiplyScalar(0.9)
     } else if (this.kind === 'smoke') {
       this.velocity.multiplyScalar(0.99)
+    } else if (this.kind === 'rain' && this.sprite.position.y < 0.05) {
+      this.lifetime = this.maxLife
+      this.sprite.visible = false
+      return false
     }
 
     const t = this.lifetime / this.maxLife
@@ -151,6 +197,19 @@ class Particle {
     } else if (this.kind === 'arrow') {
       const t = this.lifetime / this.maxLife
       mat.opacity = 1 - t
+    } else if (this.kind === 'rain') {
+      mat.opacity = 0.55
+    } else if (this.kind === 'butterfly') {
+      const t = this.lifetime / 1000
+      this.velocity.x += Math.sin(t * 6) * 0.05
+      this.velocity.y += Math.cos(t * 8) * 0.04
+      const fade = this.lifetime / this.maxLife
+      mat.opacity = 1 - fade
+    } else if (this.kind === 'firefly') {
+      const flicker = 0.5 + 0.5 * Math.sin(this.lifetime / 80)
+      mat.opacity = flicker * (1 - this.lifetime / this.maxLife)
+    } else if (this.kind === 'star') {
+      mat.opacity = 1 - this.lifetime / this.maxLife
     }
 
     return true
@@ -1070,12 +1129,20 @@ function emitParticle(kind: ParticleKind, x: number, y: number, z: number) {
       kind === 'heart' ? 0xff7aa8 :
       kind === 'smoke' ? 0xa8a8a8 :
       kind === 'spell' ? 0xa060ff :
+      kind === 'rain' ? 0x88a8d0 :
+      kind === 'butterfly' ? 0xffd0e0 :
+      kind === 'firefly' ? 0xfff080 :
+      kind === 'star' ? 0xffffff :
       0xffd870
     const scale =
       kind === 'ember' ? 0.08 :
       kind === 'dust' ? 0.12 :
       kind === 'heart' ? 0.14 :
       kind === 'smoke' ? 0.18 :
+      kind === 'rain' ? 0.04 :
+      kind === 'butterfly' ? 0.10 :
+      kind === 'firefly' ? 0.06 :
+      kind === 'star' ? 0.08 :
       0.10
     mat.color.set(color)
     p.sprite.scale.set(scale, scale, 1)
@@ -2070,6 +2137,16 @@ scene.add(directionalLight)
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
 scene.add(ambientLight)
 
+type Weather = 'clear' | 'rainy'
+
+let currentWeather: Weather = 'clear'
+let weatherEndAt = 0
+let nextWeatherCheckAt = 0
+let lightningEndAt = 0
+let lightningNextAt = 0
+let rainSpawnTime = 0
+let nextFlyerAt = 0
+
 type ToD = 'morning' | 'day' | 'evening' | 'night'
 
 function timeOfDay(): ToD {
@@ -2078,6 +2155,84 @@ function timeOfDay(): ToD {
   if (h >= 10 && h < 17) return 'day'
   if (h >= 17 && h < 20) return 'evening'
   return 'night'
+}
+
+function startRain() {
+  currentWeather = 'rainy'
+  weatherEndAt = performance.now() + 30000 + Math.random() * 30000
+  pushLog('☔ rain starts', 'idle')
+  applyTimeOfDay(timeOfDay())
+}
+
+function endRain() {
+  currentWeather = 'clear'
+  lightningEndAt = 0
+  pushLog('☀ rain stops', 'idle')
+  applyTimeOfDay(timeOfDay())
+}
+
+function maybeLightning(now: number) {
+  if (currentWeather !== 'rainy') {
+    lightningEndAt = 0
+    lightningNextAt = 0
+    return
+  }
+  if (lightningNextAt === 0) lightningNextAt = now + 4000 + Math.random() * 8000
+  if (now >= lightningNextAt) {
+    lightningEndAt = now + 120
+    lightningNextAt = now + 4000 + Math.random() * 10000
+    pushLog('⚡ lightning', 'attack')
+  }
+  if (lightningEndAt > now) {
+    ambientLight.intensity = 2.0
+    directionalLight.intensity = 3.0
+    scene.background = new THREE.Color(0xc8d0e0)
+    return
+  }
+  if (lightningEndAt !== 0) {
+    lightningEndAt = 0
+    applyTimeOfDay(timeOfDay())
+  }
+}
+
+function spawnFlyer(_now: number) {
+  const tod = timeOfDay()
+  if (currentWeather === 'rainy') return
+
+  if (tod === 'morning' || tod === 'day') {
+    emitParticle(
+      'butterfly',
+      (Math.random() - 0.5) * 7,
+      1.2 + Math.random() * 0.6,
+      (Math.random() - 0.5) * 7,
+    )
+  } else if (tod === 'evening') {
+    if (Math.random() < 0.3) {
+      emitParticle(
+        'butterfly',
+        (Math.random() - 0.5) * 7,
+        1.0 + Math.random() * 0.5,
+        (Math.random() - 0.5) * 7,
+      )
+    }
+  } else {
+    for (let i = 0; i < 2; i++) {
+      emitParticle(
+        'firefly',
+        -3 + (Math.random() - 0.5) * 3,
+        0.5 + Math.random() * 1.5,
+        -3 + (Math.random() - 0.5) * 3,
+      )
+    }
+    if (Math.random() < 0.06) {
+      emitParticle(
+        'star',
+        -4 + Math.random() * 8,
+        3.5 + Math.random() * 0.5,
+        -4 + Math.random() * 0.5,
+      )
+    }
+  }
 }
 
 function applyTimeOfDay(tod: ToD) {
@@ -2110,6 +2265,12 @@ function applyTimeOfDay(tod: ToD) {
       directionalLight.intensity = 0.5
       scene.background = new THREE.Color(0x0a0a14)
       break
+  }
+
+  if (currentWeather === 'rainy') {
+    ambientLight.intensity *= 0.55
+    directionalLight.intensity *= 0.45
+    scene.background = new THREE.Color(0x14181c)
   }
 }
 
@@ -2165,6 +2326,36 @@ function animate() {
       1.7 + Math.random() * 0.2,
       -3 + 0.2 + Math.random() * 0.2,
     )
+  }
+  if (nextWeatherCheckAt === 0) nextWeatherCheckAt = now + 60000
+  if (now >= nextWeatherCheckAt) {
+    if (currentWeather === 'clear' && Math.random() < 0.4) {
+      startRain()
+    }
+    nextWeatherCheckAt = now + 90000 + Math.random() * 90000
+  }
+  if (currentWeather === 'rainy' && now >= weatherEndAt) {
+    endRain()
+  }
+  maybeLightning(now)
+  if (currentWeather === 'rainy') {
+    rainSpawnTime += dtMs
+    while (rainSpawnTime >= 18) {
+      rainSpawnTime -= 18
+      emitParticle(
+        'rain',
+        (Math.random() - 0.5) * 12,
+        4 + Math.random() * 2,
+        (Math.random() - 0.5) * 12,
+      )
+    }
+  } else {
+    rainSpawnTime = 0
+  }
+  if (nextFlyerAt === 0) nextFlyerAt = now + 1000
+  if (now >= nextFlyerAt) {
+    spawnFlyer(now)
+    nextFlyerAt = now + 800 + Math.random() * 800
   }
   if (Math.random() < 0.04) {
     for (let i = 0; i < Agent.all.length; i++) {
