@@ -289,6 +289,7 @@ class Agent {
   static WALK_SPEED = 1.5
   static IDLE_MIN = 800
   static IDLE_MAX = 2200
+  static SLEEP_CHANCE = 0.012
   static WALK_FRAME_DURATION = 120
   static SLASH_FRAME_DURATION = 80
   static SLASH_FRAME_COUNT = 6
@@ -331,6 +332,8 @@ class Agent {
   landmarkActionsLeft = 0
   nextLandmarkActionAt = 0
   errorFlashEnd = 0
+  isSleeping = false
+  sleepEndAt = 0
 
   constructor(
     scene: THREE.Scene,
@@ -451,6 +454,7 @@ class Agent {
   }
 
   attack() {
+    if (this.isSleeping) this.wakeUpFromSleep()
     if (!this.slashTex) return
     this.prevState = this.state === 'attacking' ? this.prevState : (this.state as 'idle' | 'walking')
     this.state = 'attacking'
@@ -477,6 +481,7 @@ class Agent {
   }
 
   goto(target: THREE.Vector3) {
+    if (this.isSleeping) this.wakeUpFromSleep()
     this.target.copy(target)
     this.state = 'walking'
     this.walkFrame = 1
@@ -545,12 +550,24 @@ class Agent {
     this.bubbleHideAt = performance.now() + durationMs
   }
 
+  private wakeUpFromSleep() {
+    this.isSleeping = false
+    this.sleepEndAt = 0
+    this.sprite.scale.set(2, 2, 1)
+    this.sprite.position.y = 1
+    this.bubbleSprite.visible = false
+    this.bubbleHideAt = 0
+    this.updateLabel('idle')
+    this.setFrame(0, this.direction)
+  }
+
   flashError(durationMs = 600) {
     this.errorFlashEnd = performance.now() + durationMs
     this.updateLabel('✗ failed')
   }
 
   pickNewTarget() {
+    if (this.isSleeping) return
     const r = Math.random()
     const fireplaceMark = Agent.landmarks.find((l) => l.name === 'fireplace')
     const boardMark = Agent.landmarks.find((l) => l.name === 'quest-board')
@@ -636,6 +653,7 @@ class Agent {
             const bz = activeBoss.sprite.position.z
             let spellName: string | undefined
             if (isMage) {
+              spawnMagicSigil(bx, bz)
               const SPELLS = ['FIRA', 'BLIZZARA', 'THUNDARA', 'HOLY', 'BIO']
               spellName = SPELLS[Math.floor(Math.random() * SPELLS.length)]
               for (let i = 0; i < 6; i++) emitParticle('spell', bx, by - 0.6, bz)
@@ -659,6 +677,9 @@ class Agent {
             const sy = activeSlime.sprite.position.y + 0.5
             const sz = activeSlime.position.z
             emitDamageNumber(sx, sy, sz, damage, critical)
+            if (this.name.includes('mage')) {
+              spawnMagicSigil(sx, sz)
+            }
             emitParticle('ember', sx, sy - 0.3, sz)
           }
         }
@@ -675,6 +696,33 @@ class Agent {
     }
 
     if (this.state === 'idle') {
+      if (
+        !this.isSleeping &&
+        timeOfDay() === 'night' &&
+        currentWeather === 'clear' &&
+        !this.currentLandmark &&
+        !inDungeon.has(this.name) &&
+        !this.name.startsWith('npc-') &&
+        !this.name.startsWith('task-') &&
+        Math.random() < Agent.SLEEP_CHANCE
+      ) {
+        this.isSleeping = true
+        this.sleepEndAt = now + 8000 + Math.random() * 8000
+        this.sprite.scale.set(2.6, 0.8, 1)
+        this.sprite.position.y = 0.5
+        this.setFrame(0, this.direction)
+        this.updateLabel('z…z…')
+        this.showTool('z…', this.sleepEndAt - now)
+      }
+
+      if (this.isSleeping) {
+        if (now >= this.sleepEndAt || timeOfDay() !== 'night') {
+          this.wakeUpFromSleep()
+        } else {
+          return
+        }
+      }
+
       if (this.landmarkActionsLeft > 0 && now >= this.nextLandmarkActionAt) {
         this.landmarkActionsLeft -= 1
         if (this.currentLandmark) {
@@ -1130,6 +1178,80 @@ const aspect = innerWidth / innerHeight
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x1a1a1a)
 
+const magicSigils = new Set<() => void>()
+
+function makeMagicSigilTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')!
+  ctx.translate(128, 128)
+  ctx.strokeStyle = '#a060ff'
+  ctx.lineWidth = 4
+
+  ctx.beginPath()
+  ctx.arc(0, 0, 110, 0, Math.PI * 2)
+  ctx.stroke()
+
+  ctx.beginPath()
+  ctx.arc(0, 0, 75, 0, Math.PI * 2)
+  ctx.stroke()
+
+  ctx.beginPath()
+  for (let i = 0; i < 5; i++) {
+    const angle = -Math.PI / 2 + i * (Math.PI * 2 / 5)
+    const next = -Math.PI / 2 + ((i + 2) % 5) * (Math.PI * 2 / 5)
+    ctx.moveTo(Math.cos(angle) * 70, Math.sin(angle) * 70)
+    ctx.lineTo(Math.cos(next) * 70, Math.sin(next) * 70)
+  }
+  ctx.stroke()
+
+  ctx.lineWidth = 2
+  for (let i = 0; i < 12; i++) {
+    const a = i * Math.PI / 6
+    ctx.beginPath()
+    ctx.moveTo(Math.cos(a) * 90, Math.sin(a) * 90)
+    ctx.lineTo(Math.cos(a) * 105, Math.sin(a) * 105)
+    ctx.stroke()
+  }
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
+function spawnMagicSigil(x: number, z: number) {
+  const tex = makeMagicSigilTexture()
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+  const geom = new THREE.PlaneGeometry(2.0, 2.0)
+  const mesh = new THREE.Mesh(geom, mat)
+  mesh.rotation.x = -Math.PI / 2
+  mesh.position.set(x, 0.02, z)
+  scene.add(mesh)
+  const startTime = performance.now()
+  const lifetime = 700
+  const update = () => {
+    const t = (performance.now() - startTime) / lifetime
+    if (t >= 1) {
+      scene.remove(mesh)
+      tex.dispose()
+      geom.dispose()
+      mat.dispose()
+      magicSigils.delete(update)
+      return
+    }
+    mesh.rotation.z = t * Math.PI * 1.5
+    mat.opacity = 1 - t
+    mesh.scale.setScalar(0.4 + t * 0.6)
+  }
+  magicSigils.add(update)
+}
+
 const DUNGEON_ENTRY = new THREE.Vector3(-1.5, 1, 0.6)
 let activeBoss: Boss | null = null
 let activeSlime: Slime | null = null
@@ -1143,6 +1265,7 @@ function spawnBoss() {
   if (activeBoss) return
   activeBoss = new Boss(scene, new THREE.Vector3(DUNGEON_ENTRY.x, 1.5, DUNGEON_ENTRY.z))
   pushLog('⚔ BOSS appeared!', 'attack')
+  showBossIntro()
 }
 
 function spawnSlime() {
@@ -1702,6 +1825,19 @@ const victoryEl = (() => {
   document.body.appendChild(el)
   return el
 })()
+
+const bossIntroEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-boss-intro'
+  el.innerHTML = `<div class="pag-vs">⚔ VS ⚔</div><div class="pag-bossname">Skeleton Lord</div>`
+  document.body.appendChild(el)
+  return el
+})()
+
+function showBossIntro() {
+  bossIntroEl.classList.add('show')
+  window.setTimeout(() => bossIntroEl.classList.remove('show'), 2000)
+}
 
 function showVictoryPanel() {
   const exp = 80 + Math.floor(Math.random() * 100)
@@ -2712,6 +2848,7 @@ function animate() {
       floatingNumbers.splice(i, 1)
     }
   }
+  for (const update of magicSigils) update()
   updateParticles(dtMs)
   if (nextDungeonAt === 0) nextDungeonAt = now + 12000
   if (now >= nextDungeonAt) {

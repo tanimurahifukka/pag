@@ -133,3 +133,49 @@ body { margin:0; overflow:hidden; }
   color: #ffd870;
   font-weight: bold;
 }
+
+#pag-boss-intro {
+  position: fixed;
+  top: 35%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  z-index: 13;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+#pag-boss-intro.show {
+  opacity: 1;
+}
+#pag-boss-intro::before,
+#pag-boss-intro::after {
+  content: '';
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background: linear-gradient(180deg, rgba(40,0,0,0.95), rgba(40,0,0,0));
+  z-index: -1;
+}
+#pag-boss-intro::before { top: 0; }
+#pag-boss-intro::after {
+  bottom: 0;
+  background: linear-gradient(0deg, rgba(40,0,0,0.95), rgba(40,0,0,0));
+}
+#pag-boss-intro .pag-vs {
+  color: #ff5040;
+  font-family: serif;
+  font-size: 56px;
+  font-weight: bold;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 18px #ff5040, 0 0 4px #000;
+  margin-bottom: 8px;
+}
+#pag-boss-intro .pag-bossname {
+  color: #ffd870;
+  font-family: serif;
+  font-size: 36px;
+  font-weight: bold;
+  text-shadow: 0 0 12px #000;
+}
