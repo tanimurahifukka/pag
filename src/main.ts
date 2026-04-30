@@ -394,6 +394,9 @@ class Agent {
   currentIntent = 'idle'
   state: 'idle' | 'walking' | 'attacking' = 'idle'
   prevState: 'idle' | 'walking' = 'idle'
+  limitGauge = 0
+  limitBreakReady = false
+  limitBreakActive = false
   follow?: { leader: Agent; gap: number }
   target: THREE.Vector3
   direction: 0 | 1 | 2 | 3 = 2
@@ -412,6 +415,8 @@ class Agent {
   isSleeping = false
   sleepEndAt = 0
   private _origTintRGB?: { r: number; g: number; b: number }
+  private _limitOrigColor: { r: number; g: number; b: number } | null = null
+  private _lastLimitNotified = false
   private _statusEmitAt = 0
 
   constructor(
@@ -555,6 +560,7 @@ class Agent {
     if (this.isSleeping) this.wakeUpFromSleep()
     if (!this.slashTex) return
     this.prevState = this.state === 'attacking' ? this.prevState : (this.state as 'idle' | 'walking')
+    this.limitBreakActive = this.limitBreakReady
     this.state = 'attacking'
     this.slashFrame = 0
     this.slashFrameTime = 0
@@ -568,6 +574,12 @@ class Agent {
   }
 
   private finishAttack() {
+    if (this.limitBreakActive) {
+      this.limitBreakReady = false
+      this.limitGauge = 0
+      this.limitBreakActive = false
+      this._lastLimitNotified = false
+    }
     ;(this.sprite.material as THREE.SpriteMaterial).map = this.bodyTex
     ;(this.sprite.material as THREE.SpriteMaterial).needsUpdate = true
     if (this.swordBg) this.swordBg.visible = true
@@ -674,6 +686,27 @@ class Agent {
     this.bubbleHideAt = performance.now() + durationMs
   }
 
+  private applyHitLimitGain() {
+    if (this.limitBreakActive) return
+    this.limitGauge = Math.min(100, this.limitGauge + 18 + Math.random() * 8)
+    if (this.limitGauge >= 100) this.limitBreakReady = true
+    if (this.limitBreakReady && !this._lastLimitNotified) {
+      this._lastLimitNotified = true
+      this.showTool('LIMIT!', 1500)
+      pushLog(`${this.name} LIMIT BREAK ready!`, 'attack')
+    }
+  }
+
+  private emitLimitBreakEffect(tx: number, ty: number, tz: number) {
+    if (!this.limitBreakActive) return
+    floatingNumbers.push(new FloatingNumber(scene, tx, ty + 0.5, tz, 'OVERDRIVE!', '#ffaa30', true))
+    for (let i = 0; i < 30; i++) {
+      const angle = (i / 30) * Math.PI * 2
+      const r = 0.6 + Math.random() * 0.8
+      emitParticle('ember', tx + Math.cos(angle) * r, ty - 0.3, tz + Math.sin(angle) * r)
+    }
+  }
+
   private wakeUpFromSleep() {
     this.isSleeping = false
     this.sleepEndAt = 0
@@ -749,6 +782,21 @@ class Agent {
     }
 
     const bodyMat = this.sprite.material as THREE.SpriteMaterial
+    if (this.limitBreakReady && !this.limitBreakActive) {
+      if (!this._limitOrigColor) {
+        this._limitOrigColor = { r: bodyMat.color.r, g: bodyMat.color.g, b: bodyMat.color.b }
+      }
+      const pulse = 0.5 + 0.5 * Math.sin(now / 120)
+      bodyMat.color.setRGB(
+        this._limitOrigColor.r + pulse * 0.5,
+        this._limitOrigColor.g + pulse * 0.2,
+        this._limitOrigColor.b - pulse * 0.2,
+      )
+    } else if (this._limitOrigColor && !this.limitBreakReady) {
+      bodyMat.color.setRGB(this._limitOrigColor.r, this._limitOrigColor.g, this._limitOrigColor.b)
+      this._limitOrigColor = null
+    }
+
     if (this.errorFlashEnd > 0 && now < this.errorFlashEnd) {
       bodyMat.color.setRGB(1.0, 0.4, 0.35)
     } else if (this.errorFlashEnd > 0) {
@@ -816,8 +864,9 @@ class Agent {
             const critical = Math.random() < 0.15
             const isMage = this.name.includes('mage')
             const isArcher = this.name.includes('archer')
-            const baseDamage = critical ? 2 : 1
-            const damage = isMage ? baseDamage : baseDamage
+            let damage = critical ? 2 : 1
+            if (this.limitBreakActive) damage *= 5
+            this.applyHitLimitGain()
             activeBoss.damage(damage)
             const bx = activeBoss.sprite.position.x
             const by = activeBoss.sprite.position.y + 1.0
@@ -828,11 +877,18 @@ class Agent {
               const SPELLS = ['FIRA', 'BLIZZARA', 'THUNDARA', 'HOLY', 'BIO']
               spellName = SPELLS[Math.floor(Math.random() * SPELLS.length)]
               for (let i = 0; i < 6; i++) emitParticle('spell', bx, by - 0.6, bz)
+              if (Math.random() < 0.05 && !activeSummon) {
+                const tx = activeBoss ? activeBoss.sprite.position.x : (activeSlime ? activeSlime.position.x : 0)
+                const ty = activeBoss ? activeBoss.sprite.position.y : 0.5
+                const tz = activeBoss ? activeBoss.sprite.position.z : (activeSlime ? activeSlime.position.z : 0)
+                trySummon(new THREE.Vector3(tx, ty, tz))
+              }
             } else if (isArcher) {
               for (let i = 0; i < 4; i++) emitParticle('arrow', bx, by - 0.5, bz)
             } else {
               emitParticle('ember', bx, by - 0.5, bz)
             }
+            this.emitLimitBreakEffect(bx, by, bz)
             emitDamageNumber(bx, by, bz, damage, critical, spellName)
           }
         }
@@ -842,7 +898,9 @@ class Agent {
           const dist2 = dx * dx + dz * dz
           if (dist2 < 1.4 * 1.4) {
             const critical = Math.random() < 0.15
-            const damage = critical ? 2 : 1
+            let damage = critical ? 2 : 1
+            if (this.limitBreakActive) damage *= 5
+            this.applyHitLimitGain()
             activeSlime.damage(damage)
             const sx = activeSlime.position.x
             const sy = activeSlime.sprite.position.y + 0.5
@@ -850,7 +908,14 @@ class Agent {
             emitDamageNumber(sx, sy, sz, damage, critical)
             if (this.name.includes('mage')) {
               spawnMagicSigil(sx, sz)
+              if (Math.random() < 0.05 && !activeSummon) {
+                const tx = activeBoss ? activeBoss.sprite.position.x : (activeSlime ? activeSlime.position.x : 0)
+                const ty = activeBoss ? activeBoss.sprite.position.y : 0.5
+                const tz = activeBoss ? activeBoss.sprite.position.z : (activeSlime ? activeSlime.position.z : 0)
+                trySummon(new THREE.Vector3(tx, ty, tz))
+              }
             }
+            this.emitLimitBreakEffect(sx, sy, sz)
             emitParticle('ember', sx, sy - 0.3, sz)
           }
         }
@@ -1106,6 +1171,8 @@ class Boss {
   hpBarTex: THREE.CanvasTexture
   hpBarCanvas: HTMLCanvasElement
   hp = Boss.MAX_HP
+  phase: 1 | 2 = 1
+  phaseChanged = false
   walkFrame = 0
   walkFrameTime = 0
   direction: 0 | 1 | 2 | 3 = 2
@@ -1179,6 +1246,15 @@ class Boss {
     this.hp = Math.max(0, this.hp - amount)
     this.drawHpBar()
     this.sprite.position.x += (Math.random() - 0.5) * 0.15
+    if (this.phase === 1 && this.hp <= Math.floor(Boss.MAX_HP / 2) && !this.phaseChanged) {
+      this.phaseChanged = true
+      this.phase = 2
+      this.hp = Math.ceil(Boss.MAX_HP * 0.75)
+      ;(this.sprite.material as THREE.SpriteMaterial).color.setRGB(1.5, 0.6, 0.6)
+      this.sprite.scale.set(3.6, 3.6, 1)
+      this.drawHpBar()
+      showPhase2Banner()
+    }
     if (this.hp <= 0) {
       this.state = 'dying'
       return true
@@ -1261,6 +1337,75 @@ class Slime {
     scene.remove(this.sprite)
     this.tex.dispose()
     ;(this.sprite.material as THREE.SpriteMaterial).dispose()
+  }
+}
+
+class Summon {
+  static MAX_LIFE = 1800
+
+  orb: THREE.Mesh
+  light: THREE.PointLight
+  target: THREE.Vector3
+  lifetime = 0
+  damageDealt = false
+
+  constructor(scene: THREE.Scene, target: THREE.Vector3) {
+    this.target = target.clone()
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x60a0ff,
+      emissive: 0x4080ff,
+      emissiveIntensity: 2.5,
+      transparent: true,
+      opacity: 0.9,
+    })
+    this.orb = new THREE.Mesh(new THREE.SphereGeometry(0.6, 24, 24), mat)
+    this.orb.position.set(target.x, target.y + 5, target.z)
+    scene.add(this.orb)
+
+    this.light = new THREE.PointLight(0x80c0ff, 4.0, 8)
+    this.light.position.copy(this.orb.position)
+    scene.add(this.light)
+  }
+
+  update(dtMs: number, scene: THREE.Scene): boolean {
+    this.lifetime += dtMs
+    const t = this.lifetime / Summon.MAX_LIFE
+    let y: number
+    if (t < 0.5) y = this.target.y + 5 - (this.target.y + 5 - 1.5) * (t / 0.5)
+    else if (t < 0.8) y = 1.5
+    else y = 1.5 + (this.target.y + 5 - 1.5) * ((t - 0.8) / 0.2)
+    this.orb.position.y = y
+    this.light.position.y = y
+
+    if (!this.damageDealt && t > 0.55) {
+      this.damageDealt = true
+      if (activeBoss && activeBoss.state === 'alive') {
+        activeBoss.damage(5)
+        floatingNumbers.push(new FloatingNumber(scene, this.target.x, this.target.y + 1.2, this.target.z, 'SUMMON', '#80c0ff', true))
+        floatingNumbers.push(new FloatingNumber(scene, this.target.x, this.target.y + 0.6, this.target.z, '5', '#ffd870', true))
+      } else if (activeSlime && activeSlime.state === 'alive') {
+        activeSlime.damage(5)
+      }
+      for (let i = 0; i < 30; i++) {
+        emitParticle(
+          'spell',
+          this.target.x + (Math.random() - 0.5) * 0.4,
+          this.target.y + i * 0.15,
+          this.target.z + (Math.random() - 0.5) * 0.4,
+        )
+      }
+    }
+
+    const m = this.orb.material as THREE.MeshStandardMaterial
+    m.emissiveIntensity = 2 + Math.sin(this.lifetime / 80) * 1.5
+    if (t >= 1) {
+      scene.remove(this.orb)
+      scene.remove(this.light)
+      m.dispose()
+      ;(this.orb.geometry as THREE.SphereGeometry).dispose()
+      return false
+    }
+    return true
   }
 }
 
@@ -1466,10 +1611,17 @@ const DUNGEON_ENTRY = new THREE.Vector3(-1.5, 1, 0.6)
 let activeBoss: Boss | null = null
 let activeSlime: Slime | null = null
 let activeChest: Chest | null = null
+let activeSummon: Summon | null = null
 let bossDying = false
 let slimeDying = false
 let smokeSpawnTime = 0
 let nextSlimeAt = 0
+
+function trySummon(target: THREE.Vector3) {
+  if (activeSummon) return
+  activeSummon = new Summon(scene, target)
+  pushLog('🌟 SUMMON: Celestial Spirit', 'spawn')
+}
 
 function spawnBoss() {
   if (activeBoss) return
@@ -2066,6 +2218,14 @@ const bossIntroEl = (() => {
   return el
 })()
 
+const phase2El = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-phase2'
+  el.innerHTML = `<div class="pag-phase2-text">PHASE 2!</div>`
+  document.body.appendChild(el)
+  return el
+})()
+
 const encounterEl = (() => {
   const el = document.createElement('div')
   el.id = 'pag-encounter'
@@ -2094,6 +2254,12 @@ function showEncounterFlash() {
 function showBossIntro() {
   bossIntroEl.classList.add('show')
   window.setTimeout(() => bossIntroEl.classList.remove('show'), 2000)
+}
+
+function showPhase2Banner() {
+  phase2El.classList.add('show')
+  window.setTimeout(() => phase2El.classList.remove('show'), 1800)
+  pushLog('⚠ BOSS PHASE 2!', 'attack')
 }
 
 function showChapter() {
@@ -3178,6 +3344,11 @@ function animate() {
   lastTime = now
   for (const a of agents) a.update(now, dtMs)
   if (activeBoss) activeBoss.update(now, dtMs)
+  if (activeSummon) {
+    if (!activeSummon.update(dtMs, scene)) {
+      activeSummon = null
+    }
+  }
   if (activeBoss && activeBoss.hp <= 0 && !bossDying) {
     bossDying = true
     pushLog('💀 boss defeated!', 'spawn')

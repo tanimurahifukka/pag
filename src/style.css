@@ -180,6 +180,32 @@ body { margin:0; overflow:hidden; }
   text-shadow: 0 0 12px #000;
 }
 
+#pag-phase2 {
+  position: fixed;
+  top: 35%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  z-index: 13;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+#pag-phase2.show { opacity: 1; }
+#pag-phase2 .pag-phase2-text {
+  color: #ff5040;
+  font-family: serif;
+  font-size: 64px;
+  font-weight: bold;
+  letter-spacing: 0.2em;
+  text-shadow: 0 0 24px #ff0000, 0 0 8px #000;
+  transform: scale(0.7);
+  transition: transform 0.4s ease-out;
+}
+#pag-phase2.show .pag-phase2-text {
+  transform: scale(1.0);
+}
+
 #pag-encounter {
   position: fixed;
   inset: 0;
