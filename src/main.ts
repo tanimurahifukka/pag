@@ -928,12 +928,38 @@ door.add(doorHandle)
 door.position.set(3, 0, -3)
 scene.add(door)
 
+// ダンジョン入口（暗いアーチ）
+const dungeon = new THREE.Group()
+const dungeonFrame = new THREE.Mesh(
+  new THREE.BoxGeometry(1.2, 1.8, 0.3),
+  new THREE.MeshStandardMaterial({ color: 0x282420 }),
+)
+dungeonFrame.position.y = 0.9
+dungeon.add(dungeonFrame)
+// 黒い穴 (奥行きのある暗闇)
+const dungeonHole = new THREE.Mesh(
+  new THREE.BoxGeometry(0.8, 1.3, 0.4),
+  new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0x100808, emissiveIntensity: 0.3 }),
+)
+dungeonHole.position.set(0, 0.85, 0.18)
+dungeon.add(dungeonHole)
+// 上部装飾の小石
+const dungeonKeystone = new THREE.Mesh(
+  new THREE.BoxGeometry(0.3, 0.2, 0.35),
+  new THREE.MeshStandardMaterial({ color: 0x3a3530 }),
+)
+dungeonKeystone.position.set(0, 1.85, 0.05)
+dungeon.add(dungeonKeystone)
+dungeon.position.set(-1.5, 0, 0)
+scene.add(dungeon)
+
 Agent.landmarks.push({ name: 'fireplace', position: new THREE.Vector3(-3, 1, -2), faceDir: 0 })
 Agent.landmarks.push({ name: 'quest-board', position: new THREE.Vector3(3, 1, 2), faceDir: 2 })
 Agent.landmarks.push({ name: 'workbench', position: new THREE.Vector3(0, 1, -2), faceDir: 0 })
 Agent.landmarks.push({ name: 'library', position: new THREE.Vector3(-3, 1, 2), faceDir: 2 })
 Agent.landmarks.push({ name: 'dummy', position: new THREE.Vector3(0, 1, 2), faceDir: 2 })
 Agent.landmarks.push({ name: 'door', position: new THREE.Vector3(3, 1, -2), faceDir: 0 })
+Agent.landmarks.push({ name: 'dungeon', position: new THREE.Vector3(-1.5, 1, 0.6), faceDir: 0 })
 
 const agents: Agent[] = []
 const taskAgents = new Map<string, string>()
@@ -995,6 +1021,91 @@ function pushLog(message: string, tag?: string) {
   })
   while (logEl.childElementCount > LOG_MAX) {
     logEl.removeChild(logEl.lastChild!)
+  }
+}
+
+const inDungeon = new Set<string>()
+let nextDungeonAt = 0
+let nextDramaAt = 0
+
+function pickRandom<T>(arr: T[], n: number): T[] {
+  const copy = arr.slice()
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[copy[i], copy[j]] = [copy[j], copy[i]]
+  }
+  return copy.slice(0, n)
+}
+
+function startDungeonRun() {
+  // task subagent と party member は除外、default 10 体だけ対象
+  const candidates = agents.filter((a) => {
+    if (inDungeon.has(a.name)) return false
+    if (a.name.startsWith('task-')) return false
+    // party member (sid8-role) も除外
+    const partyish = /^[a-z0-9]{6,}-(main|archer|healer|mage)$/.test(a.name)
+    return !partyish
+  })
+  if (candidates.length < 3) return
+  const team = pickRandom(candidates, 3)
+  for (const a of team) {
+    inDungeon.add(a.name)
+    a.goto(new THREE.Vector3(-1.5, 1, 0.6))
+  }
+  pushLog(`team ${team.map((a) => a.name).join(',')} → dungeon`, 'spawn')
+
+  window.setTimeout(() => {
+    for (const a of team) {
+      if (inDungeon.has(a.name)) a.sprite.visible = false
+    }
+    pushLog('team entered dungeon', 'fire')
+  }, 5500)
+
+  const stayDuration = 25000 + Math.random() * 10000
+  window.setTimeout(() => {
+    for (const a of team) {
+      if (!inDungeon.has(a.name)) continue
+      a.sprite.visible = true
+      a.sprite.position.set(-1.5 + (Math.random() - 0.5) * 0.4, 1, 0.6 + Math.random() * 0.3)
+      inDungeon.delete(a.name)
+      a.pickNewTarget()
+    }
+    pushLog('team returned from dungeon', 'spawn')
+  }, 5500 + stayDuration)
+}
+
+function pickIdleNonDungeon(): Agent[] {
+  return Agent.all.filter((a) => {
+    if (inDungeon.has(a.name)) return false
+    if (a.state !== 'idle') return false
+    if (a.name.startsWith('task-')) return false
+    return true
+  })
+}
+
+function runDrama() {
+  const idle = pickIdleNonDungeon()
+  if (idle.length < 2) return
+  const kind = Math.floor(Math.random() * 4)
+  if (kind === 0) {
+    const team = pickRandom(idle, Math.min(idle.length, 3))
+    for (const a of team) a.goto(new THREE.Vector3(-3, 1, -2))
+    pushLog(`drama: ${team.length} agents gather at fireplace`, 'fire')
+  } else if (kind === 1) {
+    const pair = pickRandom(idle, 2)
+    for (const a of pair) a.goto(new THREE.Vector3(0, 1, 2))
+    pushLog(`drama: ${pair[0].name} vs ${pair[1].name} sparring`, 'attack')
+  } else if (kind === 2) {
+    const pair = pickRandom(idle, 2)
+    const emote = (Agent as any).EMOTES[Math.floor(Math.random() * (Agent as any).EMOTES.length)]
+    for (const a of pair) a.showTool(emote, 2200)
+    pushLog(`drama: ${pair[0].name} ${emote} ${pair[1].name}`, 'idle')
+  } else {
+    const a = pickRandom(idle, 1)[0]
+    const cx = (Math.random() < 0.5 ? -1 : 1) * 3.5
+    const cz = (Math.random() < 0.5 ? -1 : 1) * 3.5
+    a.goto(new THREE.Vector3(cx, 1, cz))
+    pushLog(`drama: ${a.name} patrol`, 'board')
   }
 }
 
@@ -1462,6 +1573,16 @@ function animate() {
     }
   }
   updateParticles(dtMs)
+  if (nextDungeonAt === 0) nextDungeonAt = now + 12000
+  if (now >= nextDungeonAt) {
+    startDungeonRun()
+    nextDungeonAt = now + 30000 + Math.random() * 15000
+  }
+  if (nextDramaAt === 0) nextDramaAt = now + 5000
+  if (inDungeon.size > 0 && now >= nextDramaAt) {
+    runDrama()
+    nextDramaAt = now + 8000 + Math.random() * 7000
+  }
   fireLight.intensity = 8 + Math.random() * 2
   renderer.render(scene, camera)
 }
