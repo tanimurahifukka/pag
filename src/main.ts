@@ -647,6 +647,21 @@ class Agent {
             emitDamageNumber(bx, by, bz, damage, critical, spellName)
           }
         }
+        if (this.slashFrame === 3 && activeSlime && activeSlime.state === 'alive') {
+          const dx = activeSlime.position.x - this.sprite.position.x
+          const dz = activeSlime.position.z - this.sprite.position.z
+          const dist2 = dx * dx + dz * dz
+          if (dist2 < 1.4 * 1.4) {
+            const critical = Math.random() < 0.15
+            const damage = critical ? 2 : 1
+            activeSlime.damage(damage)
+            const sx = activeSlime.position.x
+            const sy = activeSlime.sprite.position.y + 0.5
+            const sz = activeSlime.position.z
+            emitDamageNumber(sx, sy, sz, damage, critical)
+            emitParticle('ember', sx, sy - 0.3, sz)
+          }
+        }
         if (this.slashFrame >= Agent.SLASH_FRAME_COUNT) {
           this.finishAttack()
           return
@@ -701,6 +716,23 @@ class Agent {
         const dz = activeBoss.sprite.position.z - this.sprite.position.z
         const dist2 = dx * dx + dz * dz
         if (dist2 < 1.7 * 1.7) {
+          this.direction = this.computeDirection(dx, dz)
+          this.setFrame(0, this.direction)
+          this.attack()
+          return
+        }
+      }
+      if (
+        activeSlime &&
+        activeSlime.state === 'alive' &&
+        !inDungeon.has(this.name) &&
+        !this.name.startsWith('task-') &&
+        !this.name.startsWith('npc-')
+      ) {
+        const dx = activeSlime.position.x - this.sprite.position.x
+        const dz = activeSlime.position.z - this.sprite.position.z
+        const dist2 = dx * dx + dz * dz
+        if (dist2 < 1.4 * 1.4) {
           this.direction = this.computeDirection(dx, dz)
           this.setFrame(0, this.direction)
           this.attack()
@@ -916,6 +948,64 @@ class Boss {
   }
 }
 
+class Slime {
+  static MAX_HP = 3
+
+  sprite: THREE.Sprite
+  tex: THREE.Texture
+  hp: number = Slime.MAX_HP
+  state: 'alive' | 'dying' = 'alive'
+  frame = 0
+  frameTime = 0
+  position: THREE.Vector3
+
+  constructor(scene: THREE.Scene, position: THREE.Vector3) {
+    const loader = new THREE.TextureLoader()
+    this.tex = loader.load('/assets/sprites/props/slime_enemy.png')
+    this.tex.magFilter = THREE.NearestFilter
+    this.tex.minFilter = THREE.NearestFilter
+    this.tex.colorSpace = THREE.SRGBColorSpace
+    this.tex.repeat.set(1 / 4, 1)
+    this.tex.offset.set(0, 0)
+    const mat = new THREE.SpriteMaterial({ map: this.tex, transparent: true })
+    this.sprite = new THREE.Sprite(mat)
+    this.sprite.scale.set(1.0, 1.0, 1)
+    this.position = position.clone()
+    this.sprite.position.copy(position)
+    this.sprite.position.y = 0.5
+    scene.add(this.sprite)
+  }
+
+  update(dtMs: number) {
+    if (this.state !== 'alive') return
+    this.frameTime += dtMs
+    if (this.frameTime >= 200) {
+      this.frame = (this.frame + 1) % 4
+      this.tex.offset.x = this.frame / 4
+      this.frameTime -= 200
+    }
+  }
+
+  damage(amount: number): boolean {
+    if (this.state !== 'alive') return false
+    this.hp = Math.max(0, this.hp - amount)
+    const knock = (Math.random() - 0.5) * 0.1
+    this.sprite.position.x += knock
+    this.position.x += knock
+    if (this.hp <= 0) {
+      this.state = 'dying'
+      return true
+    }
+    return false
+  }
+
+  dispose(scene: THREE.Scene) {
+    scene.remove(this.sprite)
+    this.tex.dispose()
+    ;(this.sprite.material as THREE.SpriteMaterial).dispose()
+  }
+}
+
 class Chest {
   static MAX_CLAIMS = 3
   static LIFETIME = 16000
@@ -1042,14 +1132,38 @@ scene.background = new THREE.Color(0x1a1a1a)
 
 const DUNGEON_ENTRY = new THREE.Vector3(-1.5, 1, 0.6)
 let activeBoss: Boss | null = null
+let activeSlime: Slime | null = null
 let activeChest: Chest | null = null
 let bossDying = false
+let slimeDying = false
 let smokeSpawnTime = 0
+let nextSlimeAt = 0
 
 function spawnBoss() {
   if (activeBoss) return
   activeBoss = new Boss(scene, new THREE.Vector3(DUNGEON_ENTRY.x, 1.5, DUNGEON_ENTRY.z))
   pushLog('⚔ BOSS appeared!', 'attack')
+}
+
+function spawnSlime() {
+  if (activeSlime) return
+  const x = (Math.random() - 0.5) * 5
+  const z = (Math.random() - 0.5) * 5
+  activeSlime = new Slime(scene, new THREE.Vector3(x, 0.5, z))
+  pushLog('⚠ slime appeared!', 'attack')
+  const candidates = agents.filter((a) => !inDungeon.has(a.name) && !a.name.startsWith('task-') && !a.name.startsWith('npc-'))
+  candidates.sort((a, b) => {
+    const da = (a.sprite.position.x - x) ** 2 + (a.sprite.position.z - z) ** 2
+    const db = (b.sprite.position.x - x) ** 2 + (b.sprite.position.z - z) ** 2
+    return da - db
+  })
+  for (const a of candidates.slice(0, 3)) {
+    a.goto(new THREE.Vector3(
+      x + (Math.random() - 0.5) * 1.2,
+      1,
+      z + (Math.random() - 0.5) * 1.2,
+    ))
+  }
 }
 
 function spawnChest() {
@@ -1191,6 +1305,35 @@ fireplaceOpening.position.set(0, 0.75, 0.35)
 fireplace.add(fireplaceOpening)
 fireplace.position.set(-3, 0, -3)
 scene.add(fireplace)
+
+const saveCrystal = new THREE.Group()
+const crystalMesh = new THREE.Mesh(
+  new THREE.OctahedronGeometry(0.32, 0),
+  new THREE.MeshStandardMaterial({
+    color: 0x40c0e0,
+    emissive: 0x2080a0,
+    emissiveIntensity: 1.2,
+    metalness: 0.1,
+    roughness: 0.2,
+  }),
+)
+crystalMesh.position.y = 0.9
+saveCrystal.add(crystalMesh)
+
+const crystalBase = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.35, 0.4, 0.3, 8),
+  new THREE.MeshStandardMaterial({ color: 0x303035 }),
+)
+crystalBase.position.y = 0.15
+saveCrystal.add(crystalBase)
+
+const crystalLight = new THREE.PointLight(0x60c0e0, 1.5, 4)
+crystalLight.position.y = 0.9
+saveCrystal.add(crystalLight)
+saveCrystal.position.set(-3.5, 0, 0)
+scene.add(saveCrystal)
+
+let crystalSparkleAt = 0
 
 const activeParticles: Particle[] = []
 const particlePool: Particle[] = []
@@ -1473,6 +1616,7 @@ Agent.landmarks.push({ name: 'library', position: new THREE.Vector3(-3, 1, 2), f
 Agent.landmarks.push({ name: 'dummy', position: new THREE.Vector3(0, 1, 2), faceDir: 2 })
 Agent.landmarks.push({ name: 'door', position: new THREE.Vector3(3, 1, -2), faceDir: 0 })
 Agent.landmarks.push({ name: 'dungeon', position: new THREE.Vector3(-1.5, 1, 0.6), faceDir: 0 })
+Agent.landmarks.push({ name: 'save-crystal', position: new THREE.Vector3(-3.5, 1, 0.6), faceDir: 0 })
 
 const agents: Agent[] = []
 const taskAgents = new Map<string, string>()
@@ -1576,6 +1720,28 @@ const inDungeon = new Set<string>()
 let nextDungeonAt = 0
 let nextDramaAt = 0
 let nextNpcAt = 0
+let nextCrystalVisitAt = 0
+
+function maybeCrystalVisit(now: number) {
+  if (nextCrystalVisitAt === 0) nextCrystalVisitAt = now + 25000
+  if (now < nextCrystalVisitAt) return
+  nextCrystalVisitAt = now + 35000 + Math.random() * 30000
+  const candidates = Agent.all.filter((a) => {
+    if (inDungeon.has(a.name)) return false
+    if (a.name.startsWith('task-')) return false
+    if (a.name.startsWith('npc-')) return false
+    return a.state === 'idle'
+  })
+  if (candidates.length === 0) return
+  const a = candidates[Math.floor(Math.random() * candidates.length)]
+  a.goto(new THREE.Vector3(-3.5, 1, 0.6))
+  pushLog(`${a.name} saves at the crystal`, 'idle')
+  window.setTimeout(() => {
+    for (let i = 0; i < 8; i++) {
+      emitParticle('star', -3.5 + (Math.random() - 0.5) * 0.6, 1.3, 0.6 + (Math.random() - 0.5) * 0.4)
+    }
+  }, 4000)
+}
 
 const QUEST_TITLES = [
   'Slay the dungeon skeleton',
@@ -1747,6 +1913,44 @@ function spawnNpcVisitor() {
   npcAgents.add(name)
   pushLog(`NPC ${spec.label} entered`, 'idle')
   npc.goto(exitPos)
+}
+
+let nextChocoboAt = 0
+let activeChocobo: {
+  sprite: THREE.Sprite
+  tex: THREE.Texture
+  velocityX: number
+  spawnAt: number
+  frame: number
+  frameTime: number
+} | null = null
+
+function spawnChocobo() {
+  if (activeChocobo) return
+  const loader = new THREE.TextureLoader()
+  const tex = loader.load('/assets/sprites/props/chocobo.png')
+  tex.magFilter = THREE.NearestFilter
+  tex.minFilter = THREE.NearestFilter
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.repeat.set(1 / 4, 1)
+  tex.offset.set(0, 0)
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true })
+  const sprite = new THREE.Sprite(mat)
+  sprite.scale.set(1.4, 1.4, 1)
+  const fromLeft = Math.random() < 0.5
+  const startX = fromLeft ? -6 : 6
+  const z = (Math.random() - 0.5) * 4
+  sprite.position.set(startX, 0.7, z)
+  scene.add(sprite)
+  activeChocobo = {
+    sprite,
+    tex,
+    velocityX: fromLeft ? 4.5 : -4.5,
+    spawnAt: performance.now(),
+    frame: 0,
+    frameTime: 0,
+  }
+  pushLog('🐤 chocobo dashes through!', 'spawn')
 }
 
 function sideOpposite(s: NpcSide): NpcSide {
@@ -2393,6 +2597,31 @@ function animate() {
       bossDying = false
     }, 800)
   }
+  if (activeSlime) {
+    activeSlime.update(dtMs)
+    if (activeSlime.hp <= 0 && !slimeDying) {
+      slimeDying = true
+      const sx = activeSlime.position.x
+      const sz = activeSlime.position.z
+      for (let i = 0; i < 6; i++) {
+        emitParticle('ember', sx + (Math.random() - 0.5) * 0.5, 0.5, sz + (Math.random() - 0.5) * 0.5)
+      }
+      pushLog('slime defeated!', 'spawn')
+      window.setTimeout(() => {
+        if (activeSlime) {
+          activeSlime.dispose(scene)
+          activeSlime = null
+        }
+        slimeDying = false
+      }, 500)
+    }
+  } else {
+    if (nextSlimeAt === 0) nextSlimeAt = now + 30000
+    if (now >= nextSlimeAt && !activeBoss && currentWeather === 'clear') {
+      spawnSlime()
+      nextSlimeAt = now + 60000 + Math.random() * 60000
+    }
+  }
   if (activeChest) {
     activeChest.update(now)
     if (activeChest.isDead()) {
@@ -2421,6 +2650,13 @@ function animate() {
       -3 + 0.2 + Math.random() * 0.2,
     )
   }
+  crystalMesh.rotation.y += dtMs / 800
+  crystalLight.intensity = 1.1 + Math.sin(now / 500) * 0.4
+  if (now >= crystalSparkleAt) {
+    crystalSparkleAt = now + 600
+    emitParticle('firefly', -3.5 + (Math.random() - 0.5) * 0.4, 0.8 + Math.random() * 0.3, (Math.random() - 0.5) * 0.4)
+  }
+  maybeCrystalVisit(now)
   if (nextWeatherCheckAt === 0) nextWeatherCheckAt = now + 60000
   if (now >= nextWeatherCheckAt) {
     if (currentWeather === 'clear' && Math.random() < 0.4) {
@@ -2486,6 +2722,28 @@ function animate() {
   if (now >= nextNpcAt) {
     spawnNpcVisitor()
     nextNpcAt = now + 45000 + Math.random() * 45000
+  }
+  if (activeChocobo) {
+    const c = activeChocobo
+    c.sprite.position.x += c.velocityX * (dtMs / 1000)
+    c.frameTime += dtMs
+    if (c.frameTime >= 100) {
+      c.frame = (c.frame + 1) % 4
+      c.tex.offset.x = c.frame / 4
+      c.frameTime -= 100
+    }
+    if (Math.abs(c.sprite.position.x) > 6.5) {
+      scene.remove(c.sprite)
+      c.tex.dispose()
+      ;(c.sprite.material as THREE.SpriteMaterial).dispose()
+      activeChocobo = null
+    }
+  } else {
+    if (nextChocoboAt === 0) nextChocoboAt = now + 90000
+    if (now >= nextChocoboAt) {
+      spawnChocobo()
+      nextChocoboAt = now + 120000 + Math.random() * 120000
+    }
   }
   if (nextDramaAt === 0) nextDramaAt = now + 5000
   if (inDungeon.size > 0 && now >= nextDramaAt) {
