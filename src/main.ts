@@ -322,6 +322,27 @@ class FloatingNumber {
 }
 
 const floatingNumbers: FloatingNumber[] = []
+let comboCount = 0
+let comboLastHitAt = 0
+const COMBO_WINDOW_MS = 2200
+
+function registerHit(now: number, x: number, y: number, z: number) {
+  if (now - comboLastHitAt > COMBO_WINDOW_MS) {
+    comboCount = 1
+  } else {
+    comboCount += 1
+  }
+  comboLastHitAt = now
+  if (comboCount >= 3) {
+    const color = comboCount >= 10 ? '#ff5040'
+      : comboCount >= 5 ? '#ffaa30'
+        : '#80c0ff'
+    floatingNumbers.push(new FloatingNumber(scene, x, y + 1.6, z, `${comboCount} HIT COMBO!`, color, true))
+  }
+  if (comboCount >= 5 && comboCount % 5 === 0) {
+    pushLog(`★ ${comboCount} HIT COMBO!`, 'attack')
+  }
+}
 
 const ITEM_DROPS = [
   { name: 'Potion',       color: '#a0d8ff' },
@@ -397,6 +418,7 @@ class Agent {
   limitGauge = 0
   limitBreakReady = false
   limitBreakActive = false
+  classLabel = ''
   follow?: { leader: Agent; gap: number }
   target: THREE.Vector3
   direction: 0 | 1 | 2 | 3 = 2
@@ -868,6 +890,7 @@ class Agent {
             if (this.limitBreakActive) damage *= 5
             this.applyHitLimitGain()
             activeBoss.damage(damage)
+            registerHit(now, activeBoss.sprite.position.x, activeBoss.sprite.position.y, activeBoss.sprite.position.z)
             const bx = activeBoss.sprite.position.x
             const by = activeBoss.sprite.position.y + 1.0
             const bz = activeBoss.sprite.position.z
@@ -902,6 +925,7 @@ class Agent {
             if (this.limitBreakActive) damage *= 5
             this.applyHitLimitGain()
             activeSlime.damage(damage)
+            registerHit(now, activeSlime.position.x, activeSlime.sprite.position.y, activeSlime.position.z)
             const sx = activeSlime.position.x
             const sy = activeSlime.sprite.position.y + 0.5
             const sz = activeSlime.position.z
@@ -917,6 +941,24 @@ class Agent {
             }
             this.emitLimitBreakEffect(sx, sy, sz)
             emitParticle('ember', sx, sy - 0.3, sz)
+          }
+        }
+        if (this.slashFrame === 3) {
+          for (const m of minionSlimes) {
+            if (m.state !== 'alive') continue
+            const dx = m.position.x - this.sprite.position.x
+            const dz = m.position.z - this.sprite.position.z
+            const dist2 = dx * dx + dz * dz
+            if (dist2 < 1.4 * 1.4) {
+              const critical = Math.random() < 0.15
+              let damage = critical ? 2 : 1
+              if (this.limitBreakActive) damage *= 5
+              m.damage(damage)
+              emitParticle('ember', m.position.x, m.sprite.position.y, m.position.z)
+              emitDamageNumber(m.position.x, m.sprite.position.y + 0.5, m.position.z, damage, critical)
+              registerHit(now, m.position.x, m.sprite.position.y, m.position.z)
+              break
+            }
           }
         }
         if (this.slashFrame >= Agent.SLASH_FRAME_COUNT) {
@@ -1006,6 +1048,8 @@ class Agent {
         const dz = activeChest.position.z - this.sprite.position.z
         const dist2 = dx * dx + dz * dz
         if (dist2 < 1.0 * 1.0 && activeChest.claim()) {
+          stats.treasures += 1
+          refreshStats()
           emitGoldBurst(activeChest.position.x, 0.6, activeChest.position.z)
           const item = ITEM_DROPS[Math.floor(Math.random() * ITEM_DROPS.length)]
           floatingNumbers.push(new FloatingNumber(
@@ -1616,6 +1660,8 @@ let bossDying = false
 let slimeDying = false
 let smokeSpawnTime = 0
 let nextSlimeAt = 0
+const minionSlimes: Slime[] = []
+let nextMinionAt = 0
 
 function trySummon(target: THREE.Vector3) {
   if (activeSummon) return
@@ -1860,6 +1906,9 @@ function emitParticle(kind: ParticleKind, x: number, y: number, z: number) {
       kind === 'butterfly' ? 0xffd0e0 :
       kind === 'firefly' ? 0xfff080 :
       kind === 'star' ? 0xffffff :
+      kind === 'poison-drip' ? 0x60ff60 :
+      kind === 'burn-flame' ? 0xff6020 :
+      kind === 'paralysis' ? 0xfff080 :
       0xffd870
     const scale =
       kind === 'ember' ? 0.08 :
@@ -1870,6 +1919,9 @@ function emitParticle(kind: ParticleKind, x: number, y: number, z: number) {
       kind === 'butterfly' ? 0.10 :
       kind === 'firefly' ? 0.06 :
       kind === 'star' ? 0.08 :
+      kind === 'poison-drip' ? 0.08 :
+      kind === 'burn-flame' ? 0.10 :
+      kind === 'paralysis' ? 0.06 :
       0.10
     mat.color.set(color)
     p.sprite.scale.set(scale, scale, 1)
@@ -2197,6 +2249,33 @@ function pushLog(message: string, tag?: string) {
   }
 }
 
+let stats = { bosses: 0, slimes: 0, minions: 0, quests: 0, treasures: 0, levelUps: 0 }
+
+const statsEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-stats'
+  el.innerHTML = `
+    <div class="pag-stats-row"><span>Bosses</span><span class="pag-stats-num" data-bosses>0</span></div>
+    <div class="pag-stats-row"><span>Slimes</span><span class="pag-stats-num" data-slimes>0</span></div>
+    <div class="pag-stats-row"><span>Minions</span><span class="pag-stats-num" data-minions>0</span></div>
+    <div class="pag-stats-row"><span>Quests</span><span class="pag-stats-num" data-quests>0</span></div>
+    <div class="pag-stats-row"><span>Treasures</span><span class="pag-stats-num" data-treasures>0</span></div>
+    <div class="pag-stats-row"><span>Level Ups</span><span class="pag-stats-num" data-levelups>0</span></div>
+  `
+  document.body.appendChild(el)
+  return el
+})()
+
+function refreshStats() {
+  statsEl.querySelector<HTMLSpanElement>('[data-bosses]')!.textContent = String(stats.bosses)
+  statsEl.querySelector<HTMLSpanElement>('[data-slimes]')!.textContent = String(stats.slimes)
+  statsEl.querySelector<HTMLSpanElement>('[data-minions]')!.textContent = String(stats.minions)
+  statsEl.querySelector<HTMLSpanElement>('[data-quests]')!.textContent = String(stats.quests)
+  statsEl.querySelector<HTMLSpanElement>('[data-treasures]')!.textContent = String(stats.treasures)
+  statsEl.querySelector<HTMLSpanElement>('[data-levelups]')!.textContent = String(stats.levelUps)
+}
+refreshStats()
+
 const victoryEl = (() => {
   const el = document.createElement('div')
   el.id = 'pag-victory'
@@ -2306,6 +2385,83 @@ let nextCrystalVisitAt = 0
 let nextLevelUpAt = 0
 let nextTentSendAt = 0
 let nextClassChangeAt = 0
+let nextHealAt = 0
+
+function maybeHeal(now: number) {
+  if (nextHealAt === 0) nextHealAt = now + 12000
+  if (now < nextHealAt) return
+  nextHealAt = now + 18000 + Math.random() * 18000
+  const healers = Agent.all.filter((a) =>
+    (a.name.includes('healer') || a.classLabel === 'healer') &&
+    !inDungeon.has(a.name) &&
+    !inTent.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping
+  )
+  if (healers.length === 0) return
+  const healer = healers[Math.floor(Math.random() * healers.length)]
+  const targets = Agent.all.filter((a) =>
+    a !== healer &&
+    !inDungeon.has(a.name) &&
+    !inTent.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping
+  )
+  if (targets.length === 0) return
+  const target = targets[Math.floor(Math.random() * targets.length)]
+
+  healer.goto(new THREE.Vector3(
+    target.sprite.position.x + (Math.random() - 0.5) * 0.6,
+    1,
+    target.sprite.position.z + (Math.random() - 0.5) * 0.6,
+  ))
+  healer.showTool('CURE', 1500)
+  pushLog(`${healer.name} casts CURE on ${target.name}`, 'spawn')
+
+  window.setTimeout(() => {
+    for (let i = 0; i < 14; i++) {
+      const angle = (i / 14) * Math.PI * 2
+      emitParticle(
+        'paralysis',
+        target.sprite.position.x + Math.cos(angle) * 0.3,
+        target.sprite.position.y + 0.4,
+        target.sprite.position.z + Math.sin(angle) * 0.3,
+      )
+    }
+    for (let i = 0; i < 12; i++) {
+      emitParticle(
+        'poison-drip',
+        target.sprite.position.x + (Math.random() - 0.5) * 0.6,
+        target.sprite.position.y + 0.4 + Math.random() * 0.3,
+        target.sprite.position.z + (Math.random() - 0.5) * 0.6,
+      )
+    }
+    floatingNumbers.push(new FloatingNumber(
+      scene,
+      target.sprite.position.x,
+      target.sprite.position.y + 1.0,
+      target.sprite.position.z,
+      '+5',
+      '#80ff80',
+      false,
+    ))
+    if (target.status !== 'none') {
+      target.status = 'none'
+      ;(target as any).drawStatusIcon('none')
+      const mat = target.sprite.material as THREE.SpriteMaterial
+      if ((target as any)._origTintRGB) {
+        const t = (target as any)._origTintRGB
+        mat.color.setRGB(t.r, t.g, t.b)
+      } else {
+        mat.color.setRGB(1, 1, 1)
+      }
+    }
+  }, 1500)
+}
 
 function maybeLevelUp(now: number) {
   if (nextLevelUpAt === 0) nextLevelUpAt = now + 80000
@@ -2427,6 +2583,7 @@ function maybeClassChange(now: number) {
     newSlash.offset.set(0, 1 / 4)
     a.slashTex = newSlash
   }
+  a.classLabel = cls.label
 
   for (let i = 0; i < 14; i++) {
     const angle = (i / 14) * Math.PI * 2
@@ -2451,6 +2608,8 @@ function maybeClassChange(now: number) {
 }
 
 function triggerLevelUp(a: Agent) {
+  stats.levelUps += 1
+  refreshStats()
   pushLog(`★ ${a.name} LEVEL UP!`, 'spawn')
   for (let i = 0; i < 16; i++) {
     const angle = (i / 16) * Math.PI * 2
@@ -2630,6 +2789,8 @@ function tickQuest(now: number) {
     }
     drawQuestPost(null)
     pushLog(`✓ quest complete: ${questTitle}`, 'spawn')
+    stats.quests += 1
+    refreshStats()
     questPhase = 'idle'
     questTitle = null
     questReader = null
@@ -3344,6 +3505,39 @@ function animate() {
   lastTime = now
   for (const a of agents) a.update(now, dtMs)
   if (activeBoss) activeBoss.update(now, dtMs)
+  if (activeBoss && activeBoss.state === 'alive') {
+    if (nextMinionAt === 0) nextMinionAt = now + 5000
+    if (now >= nextMinionAt && minionSlimes.length < 3) {
+      const offset = (Math.random() - 0.5) * 2.0
+      const m = new Slime(
+        scene,
+        new THREE.Vector3(
+          activeBoss.sprite.position.x + offset,
+          0.5,
+          activeBoss.sprite.position.z + (Math.random() - 0.5) * 1.5,
+        ),
+      )
+      minionSlimes.push(m)
+      nextMinionAt = now + 8000 + Math.random() * 4000
+    }
+  } else {
+    while (minionSlimes.length > 0) {
+      const m = minionSlimes.pop()!
+      m.dispose(scene)
+    }
+    nextMinionAt = 0
+  }
+  for (let i = minionSlimes.length - 1; i >= 0; i--) {
+    const m = minionSlimes[i]
+    m.update(dtMs)
+    if (m.hp <= 0) {
+      stats.minions += 1
+      refreshStats()
+      for (let k = 0; k < 6; k++) emitParticle('ember', m.position.x, 0.5, m.position.z)
+      m.dispose(scene)
+      minionSlimes.splice(i, 1)
+    }
+  }
   if (activeSummon) {
     if (!activeSummon.update(dtMs, scene)) {
       activeSummon = null
@@ -3351,6 +3545,8 @@ function animate() {
   }
   if (activeBoss && activeBoss.hp <= 0 && !bossDying) {
     bossDying = true
+    stats.bosses += 1
+    refreshStats()
     pushLog('💀 boss defeated!', 'spawn')
     showVictoryPanel()
     window.setTimeout(() => {
@@ -3366,6 +3562,8 @@ function animate() {
     activeSlime.update(dtMs)
     if (activeSlime.hp <= 0 && !slimeDying) {
       slimeDying = true
+      stats.slimes += 1
+      refreshStats()
       const sx = activeSlime.position.x
       const sz = activeSlime.position.z
       for (let i = 0; i < 6; i++) {
@@ -3423,6 +3621,7 @@ function animate() {
   }
   maybeCrystalVisit(now)
   maybeLevelUp(now)
+  maybeHeal(now)
   maybeDialog(now)
   maybeSendToTent(now)
   maybeReleaseFromTent(now)

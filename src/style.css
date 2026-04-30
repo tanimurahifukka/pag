@@ -273,3 +273,31 @@ body { margin:0; overflow:hidden; }
   margin-top: 8px;
   opacity: 0.85;
 }
+
+#pag-stats {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 240, 220, 0.2);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #d8d2c0;
+  font-family: monospace;
+  font-size: 12px;
+  z-index: 9;
+  pointer-events: none;
+  line-height: 1.5;
+  min-width: 140px;
+}
+
+#pag-stats .pag-stats-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#pag-stats .pag-stats-num {
+  color: #ffd870;
+  font-weight: bold;
+}
