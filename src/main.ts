@@ -947,6 +947,27 @@ class Agent {
             emitParticle('ember', sx, sy - 0.3, sz)
           }
         }
+        if (this.slashFrame === 3 && activeSlimeKing && activeSlimeKing.state === 'alive') {
+          const dx = activeSlimeKing.sprite.position.x - this.sprite.position.x
+          const dz = activeSlimeKing.sprite.position.z - this.sprite.position.z
+          const dist2 = dx * dx + dz * dz
+          if (dist2 < 2.4 * 2.4) {
+            const critical = Math.random() < 0.15
+            let damage = critical ? 2 : 1
+            if (this.limitBreakActive) damage *= 5
+            if (critical) shakeCamera(0.3)
+            if (this.limitBreakActive) shakeCamera(0.6)
+            this.applyHitLimitGain()
+            activeSlimeKing.damage(damage)
+            const sx = activeSlimeKing.sprite.position.x
+            const sy = activeSlimeKing.sprite.position.y + 0.5
+            const sz = activeSlimeKing.sprite.position.z
+            emitDamageNumber(sx, sy, sz, damage, critical)
+            emitParticle('ember', sx, sy - 0.3, sz)
+            this.emitLimitBreakEffect(sx, sy, sz)
+            registerHit(now, sx, sy, sz)
+          }
+        }
         if (this.slashFrame === 3) {
           for (const m of minionSlimes) {
             if (m.state !== 'alive') continue
@@ -1129,6 +1150,23 @@ class Agent {
         const dz = activeSlime.position.z - this.sprite.position.z
         const dist2 = dx * dx + dz * dz
         if (dist2 < 1.4 * 1.4) {
+          this.direction = this.computeDirection(dx, dz)
+          this.setFrame(0, this.direction)
+          this.attack()
+          return
+        }
+      }
+      if (
+        activeSlimeKing &&
+        activeSlimeKing.state === 'alive' &&
+        !inDungeon.has(this.name) &&
+        !this.name.startsWith('task-') &&
+        !this.name.startsWith('npc-')
+      ) {
+        const dx = activeSlimeKing.sprite.position.x - this.sprite.position.x
+        const dz = activeSlimeKing.sprite.position.z - this.sprite.position.z
+        const dist2 = dx * dx + dz * dz
+        if (dist2 < 2.4 * 2.4) {
           this.direction = this.computeDirection(dx, dz)
           this.setFrame(0, this.direction)
           this.attack()
@@ -1349,6 +1387,98 @@ class Boss {
     scene.remove(this.sprite)
     this.bodyTex.dispose()
     this.slashTex.dispose()
+    this.hpBarTex.dispose()
+    ;(this.sprite.material as THREE.SpriteMaterial).dispose()
+    ;(this.hpBarSprite.material as THREE.SpriteMaterial).dispose()
+  }
+}
+
+class SlimeKing {
+  static MAX_HP = 12
+
+  sprite: THREE.Sprite
+  tex: THREE.Texture
+  hpBarSprite: THREE.Sprite
+  hpBarTex: THREE.CanvasTexture
+  hpBarCanvas: HTMLCanvasElement
+  hp: number = SlimeKing.MAX_HP
+  state: 'alive' | 'dying' = 'alive'
+  frame = 0
+  frameTime = 0
+
+  constructor(scene: THREE.Scene, position: THREE.Vector3) {
+    const loader = new THREE.TextureLoader()
+    this.tex = loader.load('/assets/sprites/props/slime_king.png')
+    this.tex.magFilter = THREE.NearestFilter
+    this.tex.minFilter = THREE.NearestFilter
+    this.tex.colorSpace = THREE.SRGBColorSpace
+    this.tex.repeat.set(1 / 4, 1)
+    this.tex.offset.set(0, 0)
+    const mat = new THREE.SpriteMaterial({ map: this.tex, transparent: true })
+    this.sprite = new THREE.Sprite(mat)
+    this.sprite.scale.set(4, 4, 1)
+    this.sprite.position.copy(position)
+    scene.add(this.sprite)
+
+    this.hpBarCanvas = document.createElement('canvas')
+    this.hpBarCanvas.width = 192
+    this.hpBarCanvas.height = 24
+    this.hpBarTex = new THREE.CanvasTexture(this.hpBarCanvas)
+    this.hpBarTex.colorSpace = THREE.SRGBColorSpace
+    const hpMat = new THREE.SpriteMaterial({ map: this.hpBarTex, transparent: true, depthTest: false })
+    this.hpBarSprite = new THREE.Sprite(hpMat)
+    this.hpBarSprite.scale.set(0.6, 0.075, 1)
+    this.hpBarSprite.position.set(0, 0.75, 0)
+    this.hpBarSprite.renderOrder = 12
+    this.sprite.add(this.hpBarSprite)
+    this.drawHpBar()
+  }
+
+  private drawHpBar() {
+    const ctx = this.hpBarCanvas.getContext('2d')
+    if (!ctx) return
+    const w = this.hpBarCanvas.width
+    const h = this.hpBarCanvas.height
+    ctx.clearRect(0, 0, w, h)
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'
+    ctx.fillRect(0, 0, w, h)
+    const ratio = Math.max(0, this.hp / SlimeKing.MAX_HP)
+    const hue = ratio > 0.5 ? 200 : ratio > 0.25 ? 50 : 0
+    ctx.fillStyle = `hsl(${hue}, 80%, 50%)`
+    ctx.fillRect(2, 2, (w - 4) * ratio, h - 4)
+    ctx.fillStyle = '#ffffff'
+    ctx.font = 'bold 14px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(`SLIME KING  ${this.hp}/${SlimeKing.MAX_HP}`, w / 2, h / 2)
+    this.hpBarTex.needsUpdate = true
+  }
+
+  update(dtMs: number) {
+    if (this.state !== 'alive') return
+    this.frameTime += dtMs
+    if (this.frameTime >= 250) {
+      this.frame = (this.frame + 1) % 4
+      this.tex.offset.x = this.frame / 4
+      this.frameTime -= 250
+    }
+  }
+
+  damage(amount: number): boolean {
+    if (this.state !== 'alive') return false
+    this.hp = Math.max(0, this.hp - amount)
+    this.drawHpBar()
+    this.sprite.position.x += (Math.random() - 0.5) * 0.15
+    if (this.hp <= 0) {
+      this.state = 'dying'
+      return true
+    }
+    return false
+  }
+
+  dispose(scene: THREE.Scene) {
+    scene.remove(this.sprite)
+    this.tex.dispose()
     this.hpBarTex.dispose()
     ;(this.sprite.material as THREE.SpriteMaterial).dispose()
     ;(this.hpBarSprite.material as THREE.SpriteMaterial).dispose()
@@ -1690,10 +1820,12 @@ function spawnMagicSigil(x: number, z: number) {
 
 const DUNGEON_ENTRY = new THREE.Vector3(-1.5, 1, 0.6)
 let activeBoss: Boss | null = null
+let activeSlimeKing: SlimeKing | null = null
 let activeSlime: Slime | null = null
 let activeChest: Chest | null = null
 let activeSummon: Summon | null = null
 let bossDying = false
+let slimeKingDying = false
 let slimeDying = false
 let smokeSpawnTime = 0
 let nextSlimeAt = 0
@@ -1728,6 +1860,7 @@ function spawnBoss() {
   if (activeBoss) return
   showEncounterFlash()
   activeBoss = new Boss(scene, new THREE.Vector3(DUNGEON_ENTRY.x, 1.5, DUNGEON_ENTRY.z))
+  bossIntroEl.querySelector<HTMLDivElement>('.pag-bossname')!.textContent = 'Skeleton Lord'
   pushLog('⚔ BOSS appeared!', 'attack')
   showBossIntro()
 }
@@ -1913,6 +2046,36 @@ fireplaceOpening.position.set(0, 0.75, 0.35)
 fireplace.add(fireplaceOpening)
 fireplace.position.set(-3, 0, -3)
 scene.add(fireplace)
+
+const cookingPot = new THREE.Group()
+const cookingPotBody = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.28, 0.35, 0.26, 12),
+  new THREE.MeshStandardMaterial({ color: 0x222028, roughness: 0.8 }),
+)
+cookingPotBody.position.y = 0.16
+cookingPot.add(cookingPotBody)
+const cookingPotRim = new THREE.Mesh(
+  new THREE.TorusGeometry(0.3, 0.035, 8, 16),
+  new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 0.7 }),
+)
+cookingPotRim.position.y = 0.31
+cookingPotRim.rotation.x = Math.PI / 2
+cookingPot.add(cookingPotRim)
+cookingPot.position.set(-2.2, 0, -2.6)
+scene.add(cookingPot)
+
+// 料理鍋スプライト (fireplace 横)
+const cookingPotTex = new THREE.TextureLoader().load('/assets/sprites/props/cooking_pot.png')
+cookingPotTex.magFilter = THREE.NearestFilter
+cookingPotTex.minFilter = THREE.NearestFilter
+cookingPotTex.colorSpace = THREE.SRGBColorSpace
+const cookingPotMat = new THREE.SpriteMaterial({ map: cookingPotTex, transparent: true })
+const cookingPotSprite = new THREE.Sprite(cookingPotMat)
+cookingPotSprite.scale.set(0.7, 0.7, 1)
+cookingPotSprite.position.set(-2.2, 0.4, -2.6)
+scene.add(cookingPotSprite)
+
+Agent.landmarks.push({ name: 'cooking-pot', position: new THREE.Vector3(-2.2, 1, -2.0), faceDir: 0 })
 
 const saveCrystal = new THREE.Group()
 const crystalMesh = new THREE.Mesh(
@@ -2452,6 +2615,101 @@ let nextHealAt = 0
 let nextFestivalAt = 0
 let festivalEndAt = 0
 let festivalAgents: Agent[] = []
+let nextCookAt = 0
+let cookingHealer: Agent | null = null
+let cookingStage: 'idle' | 'stirring' | 'serving' = 'idle'
+let cookingStageEnd = 0
+let nextWeddingAt = 0
+
+function maybeCook(now: number) {
+  if (nextCookAt === 0) nextCookAt = now + 25000
+  if (cookingStage === 'idle' && now >= nextCookAt) {
+    const healers = Agent.all.filter((a) =>
+      (a.name.includes('healer') || a.classLabel === 'healer') &&
+      !inDungeon.has(a.name) &&
+      !inTent.has(a.name) &&
+      !a.name.startsWith('task-') &&
+      !a.name.startsWith('npc-') &&
+      a.state === 'idle' &&
+      !a.isSleeping
+    )
+    if (healers.length === 0) {
+      nextCookAt = now + 15000
+      return
+    }
+    cookingHealer = healers[Math.floor(Math.random() * healers.length)]
+    cookingHealer.goto(new THREE.Vector3(-2.2, 1, -2.0))
+    cookingHealer.showTool('stir', 3500)
+    cookingStage = 'stirring'
+    cookingStageEnd = now + 5000
+    pushLog(`${cookingHealer.name} stirs the pot`, 'fire')
+  }
+  if (cookingStage === 'stirring' && now >= cookingStageEnd) {
+    cookingStage = 'serving'
+    floatingNumbers.push(new FloatingNumber(scene, -2.2, 1.4, -2.6, '🍲 STEW READY!', '#ffaa30', true))
+    const nearby = Agent.all.filter((a) => {
+      if (a === cookingHealer) return false
+      if (inDungeon.has(a.name) || inTent.has(a.name)) return false
+      if (a.name.startsWith('task-') || a.name.startsWith('npc-')) return false
+      const dx = a.sprite.position.x - (-2.2)
+      const dz = a.sprite.position.z - (-2.0)
+      return dx * dx + dz * dz < 4.5 * 4.5
+    })
+    for (const a of nearby.slice(0, 4)) {
+      for (let i = 0; i < 8; i++) {
+        emitParticle(
+          'poison-drip',
+          a.sprite.position.x + (Math.random() - 0.5) * 0.4,
+          a.sprite.position.y + 0.3,
+          a.sprite.position.z + (Math.random() - 0.5) * 0.4,
+        )
+      }
+      floatingNumbers.push(new FloatingNumber(
+        scene,
+        a.sprite.position.x,
+        a.sprite.position.y + 1.0,
+        a.sprite.position.z,
+        '+3',
+        '#80ff80',
+        false,
+      ))
+    }
+    pushLog('stew shared!', 'spawn')
+    cookingStage = 'idle'
+    cookingHealer = null
+    nextCookAt = now + 60000 + Math.random() * 60000
+  }
+}
+
+function maybeWedding(now: number) {
+  if (nextWeddingAt === 0) nextWeddingAt = now + 360000
+  if (now < nextWeddingAt) return
+  nextWeddingAt = now + 600000 + Math.random() * 300000
+  const candidates = Agent.all.filter((a) =>
+    !inDungeon.has(a.name) &&
+    !inTent.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping
+  )
+  if (candidates.length < 2) return
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[candidates[i], candidates[j]] = [candidates[j], candidates[i]]
+  }
+  const [a, b] = candidates.slice(0, 2)
+  a.goto(new THREE.Vector3(-3.4, 1, -2))
+  b.goto(new THREE.Vector3(-2.6, 1, -2))
+  pushLog(`💒 ${a.name} & ${b.name} get married!`, 'spawn')
+  window.setTimeout(() => {
+    for (let i = 0; i < 24; i++) {
+      const angle = (i / 24) * Math.PI * 2
+      emitParticle('heart', -3 + Math.cos(angle) * 0.6, 1.5 + Math.sin(angle) * 0.4, -2 + Math.sin(angle) * 0.6)
+    }
+    floatingNumbers.push(new FloatingNumber(scene, -3, 2.4, -2, 'CONGRATULATIONS!', '#ff7aa8', true))
+  }, 4000)
+}
 
 function startFestival() {
   pushLog('🎉 FESTIVAL!', 'spawn')
@@ -2963,6 +3221,47 @@ function spawnChocobo() {
   pushLog('🐤 chocobo dashes through!', 'spawn')
 }
 
+let activeGhost: {
+  sprite: THREE.Sprite
+  tex: THREE.Texture
+  velocityX: number
+  velocityZ: number
+  spawnAt: number
+  frame: number
+  frameTime: number
+  lifetime: number
+} | null = null
+let nextGhostAt = 0
+
+function spawnGhost() {
+  if (activeGhost) return
+  if (timeOfDay() !== 'night') return
+  const loader = new THREE.TextureLoader()
+  const tex = loader.load('/assets/sprites/props/ghost.png')
+  tex.magFilter = THREE.NearestFilter
+  tex.minFilter = THREE.NearestFilter
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.repeat.set(1 / 4, 1)
+  tex.offset.set(0, 0)
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.7 })
+  const sprite = new THREE.Sprite(mat)
+  sprite.scale.set(0.9, 0.9, 1)
+  const fromLeft = Math.random() < 0.5
+  sprite.position.set(fromLeft ? -5.5 : 5.5, 1.4, (Math.random() - 0.5) * 5)
+  scene.add(sprite)
+  activeGhost = {
+    sprite,
+    tex,
+    velocityX: fromLeft ? 0.6 : -0.6,
+    velocityZ: (Math.random() - 0.5) * 0.3,
+    spawnAt: performance.now(),
+    frame: 0,
+    frameTime: 0,
+    lifetime: 0,
+  }
+  pushLog('👻 a ghost wanders…', 'idle')
+}
+
 function sideOpposite(s: NpcSide): NpcSide {
   return s === 'north' ? 'south' : s === 'south' ? 'north' : s === 'east' ? 'west' : 'east'
 }
@@ -3010,8 +3309,17 @@ function startDungeonRun() {
       a.pickNewTarget()
     }
     pushLog('team returned from dungeon', 'spawn')
-    if (Math.random() < 0.35 && !activeBoss) {
-      spawnBoss()
+    if (Math.random() < 0.35 && !activeBoss && !activeSlimeKing) {
+      if (Math.random() < 0.5) {
+        spawnBoss()
+      } else {
+        activeSlimeKing = new SlimeKing(scene, new THREE.Vector3(-1.5, 1.3, 0.6))
+        pushLog('⚔ SLIME KING appeared!', 'attack')
+        showEncounterFlash()
+        bossIntroEl.querySelector<HTMLDivElement>('.pag-bossname')!.textContent = 'Slime King'
+        bossIntroEl.classList.add('show')
+        window.setTimeout(() => bossIntroEl.classList.remove('show'), 2000)
+      }
       // フォーメーション配置: ボス位置 (-1.5, 1, 0.6) から半径 2 の半円弧 (front-facing 側、Z+ 方向)
       const bossX = -1.5
       const bossZ = 0.6
@@ -3586,6 +3894,7 @@ setInterval(() => applyTimeOfDay(timeOfDay()), 60_000)
 
 let lastTime = 0
 let emberSpawnTime = 0
+let cookingPotSteamTime = 0
 
 function animate() {
   requestAnimationFrame(animate)
@@ -3593,6 +3902,8 @@ function animate() {
   const dtMs = lastTime === 0 ? 0 : now - lastTime
   lastTime = now
   for (const a of agents) a.update(now, dtMs)
+  maybeCook(now)
+  maybeWedding(now)
   if (activeBoss) activeBoss.update(now, dtMs)
   if (activeBoss && activeBoss.state === 'alive') {
     if (nextMinionAt === 0) nextMinionAt = now + 5000
@@ -3647,6 +3958,24 @@ function animate() {
       bossDying = false
     }, 800)
   }
+  if (activeSlimeKing) {
+    activeSlimeKing.update(dtMs)
+    if (activeSlimeKing.hp <= 0 && !slimeKingDying) {
+      slimeKingDying = true
+      pushLog('💀 Slime King defeated!', 'spawn')
+      stats.bosses += 1
+      refreshStats()
+      showVictoryPanel()
+      window.setTimeout(() => {
+        if (activeSlimeKing) {
+          activeSlimeKing.dispose(scene)
+          activeSlimeKing = null
+        }
+        spawnChest()
+        slimeKingDying = false
+      }, 800)
+    }
+  }
   if (activeSlime) {
     activeSlime.update(dtMs)
     if (activeSlime.hp <= 0 && !slimeDying) {
@@ -3669,7 +3998,7 @@ function animate() {
     }
   } else {
     if (nextSlimeAt === 0) nextSlimeAt = now + 30000
-    if (now >= nextSlimeAt && !activeBoss && currentWeather === 'clear') {
+    if (now >= nextSlimeAt && !activeBoss && !activeSlimeKing && currentWeather === 'clear') {
       spawnSlime()
       nextSlimeAt = now + 60000 + Math.random() * 60000
     }
@@ -3686,6 +4015,7 @@ function animate() {
     if (
       !activeChest &&
       !activeBoss &&
+      !activeSlimeKing &&
       currentWeather === 'clear' &&
       inDungeon.size === 0 &&
       treasureRoomChests.length === 0
@@ -3749,6 +4079,16 @@ function animate() {
       -3 + (Math.random() - 0.5) * 0.4,
       1.7 + Math.random() * 0.2,
       -3 + 0.2 + Math.random() * 0.2,
+    )
+  }
+  cookingPotSteamTime += dtMs
+  while (cookingPotSteamTime >= 300) {
+    cookingPotSteamTime -= 300
+    emitParticle(
+      'smoke',
+      -2.2 + (Math.random() - 0.5) * 0.2,
+      0.7,
+      -2.6 + (Math.random() - 0.5) * 0.1,
     )
   }
   crystalMesh.rotation.y += dtMs / 800
@@ -3856,6 +4196,31 @@ function animate() {
     if (now >= nextChocoboAt) {
       spawnChocobo()
       nextChocoboAt = now + 120000 + Math.random() * 120000
+    }
+  }
+  if (activeGhost) {
+    const g = activeGhost
+    g.lifetime += dtMs
+    g.sprite.position.x += g.velocityX * (dtMs / 1000)
+    g.sprite.position.z += g.velocityZ * (dtMs / 1000)
+    g.sprite.position.y = 1.4 + Math.sin(g.lifetime / 400) * 0.2
+    g.frameTime += dtMs
+    if (g.frameTime >= 200) {
+      g.frame = (g.frame + 1) % 4
+      g.tex.offset.x = g.frame / 4
+      g.frameTime -= 200
+    }
+    if (Math.abs(g.sprite.position.x) > 6 || timeOfDay() !== 'night') {
+      scene.remove(g.sprite)
+      g.tex.dispose()
+      ;(g.sprite.material as THREE.SpriteMaterial).dispose()
+      activeGhost = null
+    }
+  } else {
+    if (nextGhostAt === 0) nextGhostAt = now + 60000
+    if (now >= nextGhostAt) {
+      spawnGhost()
+      nextGhostAt = now + 300000 + Math.random() * 300000
     }
   }
   if (nextDramaAt === 0) nextDramaAt = now + 5000
