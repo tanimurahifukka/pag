@@ -26,6 +26,10 @@ type ParticleKind =
   | 'butterfly'
   | 'firefly'
   | 'star'
+  | 'sakura'
+  | 'cicada'
+  | 'leaf'
+  | 'snow'
   | 'poison-drip'
   | 'burn-flame'
   | 'paralysis'
@@ -77,6 +81,10 @@ class Particle {
       kind === 'butterfly' ? 0xffd0e0 :
       kind === 'firefly' ? 0xfff080 :
       kind === 'star' ? 0xffffff :
+      kind === 'sakura' ? 0xffc0d8 :
+      kind === 'cicada' ? 0xfff080 :
+      kind === 'leaf' ? 0xf0a040 :
+      kind === 'snow' ? 0xf0f0ff :
       kind === 'poison-drip' ? 0x60ff60 :
       kind === 'burn-flame' ? 0xff6020 :
       kind === 'paralysis' ? 0xfff080 :
@@ -90,6 +98,10 @@ class Particle {
       kind === 'butterfly' ? 0.10 :
       kind === 'firefly' ? 0.06 :
       kind === 'star' ? 0.08 :
+      kind === 'sakura' ? 0.10 :
+      kind === 'cicada' ? 0.06 :
+      kind === 'leaf' ? 0.10 :
+      kind === 'snow' ? 0.08 :
       kind === 'poison-drip' ? 0.08 :
       kind === 'burn-flame' ? 0.10 :
       kind === 'paralysis' ? 0.06 :
@@ -177,6 +189,18 @@ class Particle {
     } else if (this.kind === 'star') {
       this.maxLife = 1200 + Math.random() * 600
       this.velocity.set(4 + Math.random() * 2, 0, 0)
+    } else if (this.kind === 'sakura') {
+      this.maxLife = 3500 + Math.random() * 1500
+      this.velocity.set((Math.random() - 0.5) * 0.4, -0.6 + (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.4)
+    } else if (this.kind === 'cicada') {
+      this.maxLife = 200 + Math.random() * 200
+      this.velocity.set(0, 0, 0)
+    } else if (this.kind === 'leaf') {
+      this.maxLife = 4000 + Math.random() * 1500
+      this.velocity.set((Math.random() - 0.5) * 0.6, -0.7 + (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.6)
+    } else if (this.kind === 'snow') {
+      this.maxLife = 5000 + Math.random() * 2000
+      this.velocity.set((Math.random() - 0.5) * 0.3, -0.5 - Math.random() * 0.2, (Math.random() - 0.5) * 0.3)
     } else if (this.kind === 'poison-drip') {
       this.maxLife = 800
       this.velocity.set((Math.random() - 0.5) * 0.2, -0.6, (Math.random() - 0.5) * 0.2)
@@ -250,6 +274,21 @@ class Particle {
       mat.opacity = flicker * (1 - this.lifetime / this.maxLife)
     } else if (this.kind === 'star') {
       mat.opacity = 1 - this.lifetime / this.maxLife
+    } else if (this.kind === 'sakura') {
+      const t = this.lifetime / 1000
+      this.velocity.x += Math.sin(t * 4) * 0.05
+      mat.opacity = 1 - this.lifetime / this.maxLife
+    } else if (this.kind === 'cicada') {
+      const flicker = 0.3 + 0.7 * Math.sin(this.lifetime / 30)
+      mat.opacity = flicker * (1 - this.lifetime / this.maxLife)
+    } else if (this.kind === 'leaf') {
+      const t = this.lifetime / 1000
+      this.velocity.x += Math.cos(t * 3) * 0.06
+      mat.opacity = 1 - this.lifetime / this.maxLife
+    } else if (this.kind === 'snow') {
+      const t = this.lifetime / 1000
+      this.velocity.x += Math.sin(t * 2) * 0.02
+      mat.opacity = 0.85 - 0.5 * this.lifetime / this.maxLife
     } else if (this.kind === 'poison-drip') {
       const t = this.lifetime / this.maxLife
       mat.opacity = 1 - t
@@ -2026,6 +2065,41 @@ scene.add(tent)
 
 Agent.landmarks.push({ name: 'tent', position: new THREE.Vector3(-1.5, 1, -2.2), faceDir: 0 })
 
+const bunkbed = new THREE.Group()
+const bunkLower = new THREE.Mesh(
+  new THREE.BoxGeometry(0.9, 0.12, 1.4),
+  new THREE.MeshStandardMaterial({ color: 0x6b3a1a }),
+)
+bunkLower.position.y = 0.4
+bunkbed.add(bunkLower)
+
+const bunkUpper = new THREE.Mesh(
+  new THREE.BoxGeometry(0.9, 0.12, 1.4),
+  new THREE.MeshStandardMaterial({ color: 0x6b3a1a }),
+)
+bunkUpper.position.y = 1.0
+bunkbed.add(bunkUpper)
+
+for (const [px, pz] of [[-0.4, -0.6], [0.4, -0.6], [-0.4, 0.6], [0.4, 0.6]] as const) {
+  const post = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 1.2, 0.08),
+    new THREE.MeshStandardMaterial({ color: 0x4a2a10 }),
+  )
+  post.position.set(px, 0.6, pz)
+  bunkbed.add(post)
+}
+
+const blanket = new THREE.Mesh(
+  new THREE.BoxGeometry(0.85, 0.05, 1.35),
+  new THREE.MeshStandardMaterial({ color: 0xc04040 }),
+)
+blanket.position.set(0, 0.48, 0)
+bunkbed.add(blanket)
+bunkbed.position.set(-2.6, 0, -3)
+scene.add(bunkbed)
+
+Agent.landmarks.push({ name: 'bunkbed', position: new THREE.Vector3(-2.6, 1, -2.2), faceDir: 0 })
+
 const fireplace = new THREE.Group()
 const fireplaceFrame = new THREE.Mesh(
   new THREE.BoxGeometry(1.2, 1.5, 0.6),
@@ -2124,6 +2198,10 @@ function emitParticle(kind: ParticleKind, x: number, y: number, z: number) {
       kind === 'butterfly' ? 0xffd0e0 :
       kind === 'firefly' ? 0xfff080 :
       kind === 'star' ? 0xffffff :
+      kind === 'sakura' ? 0xffc0d8 :
+      kind === 'cicada' ? 0xfff080 :
+      kind === 'leaf' ? 0xf0a040 :
+      kind === 'snow' ? 0xf0f0ff :
       kind === 'poison-drip' ? 0x60ff60 :
       kind === 'burn-flame' ? 0xff6020 :
       kind === 'paralysis' ? 0xfff080 :
@@ -2137,6 +2215,10 @@ function emitParticle(kind: ParticleKind, x: number, y: number, z: number) {
       kind === 'butterfly' ? 0.10 :
       kind === 'firefly' ? 0.06 :
       kind === 'star' ? 0.08 :
+      kind === 'sakura' ? 0.10 :
+      kind === 'cicada' ? 0.06 :
+      kind === 'leaf' ? 0.10 :
+      kind === 'snow' ? 0.08 :
       kind === 'poison-drip' ? 0.08 :
       kind === 'burn-flame' ? 0.10 :
       kind === 'paralysis' ? 0.06 :
@@ -2595,6 +2677,7 @@ function showVictoryPanel() {
 
 const inDungeon = new Set<string>()
 const inTent = new Set<string>()
+const inBunkbed = new Set<string>()
 const CLASS_SPRITES: { walk: string; slash: string; label: string }[] = [
   { walk: '/assets/sprites/legacy/char_main_walk.png', slash: '/assets/sprites/legacy/char_main_slash.png', label: 'warrior' },
   { walk: '/assets/sprites/legacy/char_archer_walk.png', slash: '/assets/sprites/legacy/char_archer_slash.png', label: 'archer' },
@@ -2610,6 +2693,7 @@ let nextNpcAt = 0
 let nextCrystalVisitAt = 0
 let nextLevelUpAt = 0
 let nextTentSendAt = 0
+let nextBunkbedAt = 0
 let nextClassChangeAt = 0
 let nextHealAt = 0
 let nextFestivalAt = 0
@@ -2887,6 +2971,50 @@ function maybeReleaseFromTent(_now: number) {
       a.pickNewTarget()
       inTent.delete(name)
       pushLog(`${name} wakes up`, 'spawn')
+    }
+  }
+}
+
+function maybeSendToBunkbed(now: number) {
+  if (timeOfDay() !== 'night') return
+  if (nextBunkbedAt === 0) nextBunkbedAt = now + 18000
+  if (now < nextBunkbedAt) return
+  nextBunkbedAt = now + 30000 + Math.random() * 30000
+  if (inBunkbed.size >= 2) return
+  const candidates = Agent.all.filter((a) =>
+    !inDungeon.has(a.name) &&
+    !inTent.has(a.name) &&
+    !inBunkbed.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping
+  )
+  if (candidates.length === 0) return
+  const a = candidates[Math.floor(Math.random() * candidates.length)]
+  inBunkbed.add(a.name)
+  a.goto(new THREE.Vector3(-2.6, 1, -2.2))
+  pushLog(`${a.name} climbs into the bunk`, 'idle')
+  window.setTimeout(() => {
+    if (!inBunkbed.has(a.name)) return
+    a.sprite.visible = false
+    pushLog(`${a.name} sleeps in the bunk`, 'idle')
+  }, 4500)
+}
+
+function maybeReleaseFromBunkbed(_now: number) {
+  if (timeOfDay() === 'morning' || timeOfDay() === 'day') {
+    for (const name of Array.from(inBunkbed)) {
+      const a = agents.find((x) => x.name === name)
+      if (!a) {
+        inBunkbed.delete(name)
+        continue
+      }
+      a.sprite.visible = true
+      a.sprite.position.set(-2.6 + (Math.random() - 0.5) * 0.4, 1, -2.0)
+      a.pickNewTarget()
+      inBunkbed.delete(name)
+      pushLog(`${name} climbs down`, 'spawn')
     }
   }
 }
@@ -3753,14 +3881,21 @@ const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
 scene.add(ambientLight)
 
 type Weather = 'clear' | 'rainy'
+type Season = 'spring' | 'summer' | 'autumn' | 'winter'
 
 let currentWeather: Weather = 'clear'
+let currentSeason: Season = 'spring'
+let seasonStartedAt = 0
+const SEASON_DURATION = 180000
+let seasonSpawnTime = 0
 let weatherEndAt = 0
 let nextWeatherCheckAt = 0
 let lightningEndAt = 0
 let lightningNextAt = 0
 let rainSpawnTime = 0
-let nextFlyerAt = 0
+let activeDragon: { sprite: THREE.Sprite; tex: THREE.Texture; velX: number } | null = null
+let nextDragonAt = 0
+const puddles: { mesh: THREE.Mesh; spawnAt: number }[] = []
 
 type ToD = 'morning' | 'day' | 'evening' | 'night'
 
@@ -3770,6 +3905,62 @@ function timeOfDay(): ToD {
   if (h >= 10 && h < 17) return 'day'
   if (h >= 17 && h < 20) return 'evening'
   return 'night'
+}
+
+function tickSeason(now: number) {
+  if (seasonStartedAt === 0) seasonStartedAt = now
+  const elapsed = now - seasonStartedAt
+  const idx = Math.floor(elapsed / SEASON_DURATION) % 4
+  const next: Season = (['spring', 'summer', 'autumn', 'winter'] as const)[idx]
+  if (next !== currentSeason) {
+    currentSeason = next
+    pushLog(`☀ season: ${currentSeason}`, 'idle')
+  }
+}
+
+function spawnPuddles() {
+  const count = 5 + Math.floor(Math.random() * 3)
+  for (let i = 0; i < count; i++) {
+    const r = 0.3 + Math.random() * 0.5
+    const geom = new THREE.PlaneGeometry(r, r * 1.6)
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x506080,
+      emissive: 0x101820,
+      emissiveIntensity: 0.3,
+      transparent: true,
+      opacity: 0.7,
+      metalness: 0.6,
+      roughness: 0.2,
+    })
+    const mesh = new THREE.Mesh(geom, mat)
+    mesh.rotation.x = -Math.PI / 2
+    mesh.position.set((Math.random() - 0.5) * 8, 0.01, (Math.random() - 0.5) * 8)
+    scene.add(mesh)
+    puddles.push({ mesh, spawnAt: performance.now() })
+  }
+  pushLog('puddles form on the stones', 'idle')
+}
+
+function spawnDragon() {
+  if (activeDragon) return
+  const loader = new THREE.TextureLoader()
+  const tex = loader.load('/assets/sprites/props/dragon.png')
+  tex.magFilter = THREE.NearestFilter
+  tex.minFilter = THREE.NearestFilter
+  tex.colorSpace = THREE.SRGBColorSpace
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true })
+  const sprite = new THREE.Sprite(mat)
+  sprite.scale.set(3.0, 1.0, 1)
+  const fromLeft = Math.random() < 0.5
+  sprite.position.set(fromLeft ? -7 : 7, 4 + Math.random() * 0.5, (Math.random() - 0.5) * 4)
+  if (!fromLeft) {
+    sprite.scale.x = -3.0
+  }
+  sprite.renderOrder = 8
+  scene.add(sprite)
+  activeDragon = { sprite, tex, velX: fromLeft ? 2.5 : -2.5 }
+  pushLog('🐉 a dragon soars overhead!', 'spawn')
+  shakeCamera(0.4)
 }
 
 function startRain() {
@@ -3784,6 +3975,7 @@ function endRain() {
   lightningEndAt = 0
   pushLog('☀ rain stops', 'idle')
   applyTimeOfDay(timeOfDay())
+  spawnPuddles()
 }
 
 function maybeLightning(now: number) {
@@ -3810,27 +4002,12 @@ function maybeLightning(now: number) {
   }
 }
 
-function spawnFlyer(_now: number) {
-  const tod = timeOfDay()
+function spawnFlyer(now: number) {
+  void now
   if (currentWeather === 'rainy') return
+  const tod = timeOfDay()
 
-  if (tod === 'morning' || tod === 'day') {
-    emitParticle(
-      'butterfly',
-      (Math.random() - 0.5) * 7,
-      1.2 + Math.random() * 0.6,
-      (Math.random() - 0.5) * 7,
-    )
-  } else if (tod === 'evening') {
-    if (Math.random() < 0.3) {
-      emitParticle(
-        'butterfly',
-        (Math.random() - 0.5) * 7,
-        1.0 + Math.random() * 0.5,
-        (Math.random() - 0.5) * 7,
-      )
-    }
-  } else {
+  if (tod === 'night') {
     for (let i = 0; i < 2; i++) {
       emitParticle(
         'firefly',
@@ -3843,10 +4020,41 @@ function spawnFlyer(_now: number) {
       emitParticle(
         'star',
         -4 + Math.random() * 8,
-        3.5 + Math.random() * 0.5,
+        3.5,
         -4 + Math.random() * 0.5,
       )
     }
+    return
+  }
+
+  if (currentSeason === 'spring') {
+    emitParticle(
+      'sakura',
+      (Math.random() - 0.5) * 8,
+      2 + Math.random() * 1.5,
+      (Math.random() - 0.5) * 8,
+    )
+  } else if (currentSeason === 'summer') {
+    emitParticle(
+      'cicada',
+      (Math.random() - 0.5) * 7,
+      1.0 + Math.random() * 1.0,
+      (Math.random() - 0.5) * 7,
+    )
+  } else if (currentSeason === 'autumn') {
+    emitParticle(
+      'leaf',
+      (Math.random() - 0.5) * 8,
+      2 + Math.random() * 1.5,
+      (Math.random() - 0.5) * 8,
+    )
+  } else {
+    emitParticle(
+      'snow',
+      (Math.random() - 0.5) * 9,
+      3 + Math.random() * 1.5,
+      (Math.random() - 0.5) * 9,
+    )
   }
 }
 
@@ -3901,6 +4109,7 @@ function animate() {
   const now = performance.now()
   const dtMs = lastTime === 0 ? 0 : now - lastTime
   lastTime = now
+  tickSeason(now)
   for (const a of agents) a.update(now, dtMs)
   maybeCook(now)
   maybeWedding(now)
@@ -4103,6 +4312,8 @@ function animate() {
   maybeDialog(now)
   maybeSendToTent(now)
   maybeReleaseFromTent(now)
+  maybeSendToBunkbed(now)
+  maybeReleaseFromBunkbed(now)
   maybeClassChange(now)
   if (nextChapterAt === 0) nextChapterAt = now + 30000
   if (now >= nextChapterAt) {
@@ -4134,10 +4345,43 @@ function animate() {
   } else {
     rainSpawnTime = 0
   }
-  if (nextFlyerAt === 0) nextFlyerAt = now + 1000
-  if (now >= nextFlyerAt) {
+
+  for (let i = puddles.length - 1; i >= 0; i--) {
+    const p = puddles[i]
+    const elapsed = now - p.spawnAt
+    const lifetime = 30000
+    if (elapsed >= lifetime) {
+      scene.remove(p.mesh)
+      ;(p.mesh.material as THREE.MeshStandardMaterial).dispose()
+      ;(p.mesh.geometry as THREE.PlaneGeometry).dispose()
+      puddles.splice(i, 1)
+    } else {
+      const mat = p.mesh.material as THREE.MeshStandardMaterial
+      mat.opacity = 0.7 * (1 - elapsed / lifetime)
+    }
+  }
+
+  if (seasonSpawnTime === 0) seasonSpawnTime = now + 1000
+  if (now >= seasonSpawnTime) {
     spawnFlyer(now)
-    nextFlyerAt = now + 800 + Math.random() * 800
+    seasonSpawnTime = now + 800 + Math.random() * 800
+  }
+  if (activeDragon) {
+    const d = activeDragon
+    d.sprite.position.x += d.velX * (dtMs / 1000)
+    d.sprite.position.y += Math.sin(now / 400) * 0.005
+    if (Math.abs(d.sprite.position.x) > 7.5) {
+      scene.remove(d.sprite)
+      d.tex.dispose()
+      ;(d.sprite.material as THREE.SpriteMaterial).dispose()
+      activeDragon = null
+    }
+  } else {
+    if (nextDragonAt === 0) nextDragonAt = now + 240000
+    if (now >= nextDragonAt) {
+      spawnDragon()
+      nextDragonAt = now + 360000 + Math.random() * 240000
+    }
   }
   if (Math.random() < 0.04) {
     for (let i = 0; i < Agent.all.length; i++) {
