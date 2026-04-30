@@ -15,7 +15,7 @@ interface PagApi {
   list(): string[]
 }
 
-type ParticleKind = 'ember' | 'dust' | 'heart'
+type ParticleKind = 'ember' | 'dust' | 'heart' | 'smoke'
 
 declare global {
   interface Window {
@@ -32,8 +32,16 @@ class Particle {
 
   constructor(scene: THREE.Scene, kind: ParticleKind) {
     this.kind = kind
-    const color = kind === 'ember' ? 0xff8c3a : kind === 'dust' ? 0xc8b8a0 : 0xff7aa8
-    const scale = kind === 'ember' ? 0.08 : kind === 'dust' ? 0.12 : 0.14
+    const color =
+      kind === 'ember' ? 0xff8c3a :
+      kind === 'dust' ? 0xc8b8a0 :
+      kind === 'heart' ? 0xff7aa8 :
+      0xa8a8a8
+    const scale =
+      kind === 'ember' ? 0.08 :
+      kind === 'dust' ? 0.12 :
+      kind === 'heart' ? 0.14 :
+      0.18
     const mat = new THREE.SpriteMaterial({
       color,
       transparent: true,
@@ -70,10 +78,17 @@ class Particle {
         0.7 + Math.random() * 0.3,
         (Math.random() - 0.5) * 0.6,
       )
+    } else if (this.kind === 'smoke') {
+      this.maxLife = 2200 + Math.random() * 1000
+      this.velocity.set(
+        (Math.random() - 0.5) * 0.15,
+        0.6 + Math.random() * 0.3,
+        (Math.random() - 0.5) * 0.15,
+      )
     }
     this.sprite.visible = true
     const mat = this.sprite.material as THREE.SpriteMaterial
-    mat.opacity = 1
+    mat.opacity = this.kind === 'smoke' ? 0.4 : 1
   }
 
   update(dtMs: number): boolean {
@@ -92,11 +107,13 @@ class Particle {
       this.velocity.y -= 0.5 * dt
     } else if (this.kind === 'dust') {
       this.velocity.multiplyScalar(0.9)
+    } else if (this.kind === 'smoke') {
+      this.velocity.multiplyScalar(0.99)
     }
 
     const t = this.lifetime / this.maxLife
     const mat = this.sprite.material as THREE.SpriteMaterial
-    mat.opacity = 1 - t
+    mat.opacity = this.kind === 'smoke' ? (1 - t) * 0.4 : 1 - t
 
     if (this.kind === 'ember') {
       const r = 1.0
@@ -449,6 +466,15 @@ class Agent {
       if (this.slashFrameTime >= Agent.SLASH_FRAME_DURATION) {
         this.slashFrame += 1
         this.slashFrameTime -= Agent.SLASH_FRAME_DURATION
+        if (this.slashFrame === 3 && activeBoss && activeBoss.state === 'alive') {
+          const dx = activeBoss.sprite.position.x - this.sprite.position.x
+          const dz = activeBoss.sprite.position.z - this.sprite.position.z
+          const dist2 = dx * dx + dz * dz
+          if (dist2 < 1.7 * 1.7) {
+            activeBoss.damage(1)
+            emitParticle('ember', activeBoss.sprite.position.x, activeBoss.sprite.position.y, activeBoss.sprite.position.z)
+          }
+        }
         if (this.slashFrame >= Agent.SLASH_FRAME_COUNT) {
           this.finishAttack()
           return
@@ -474,6 +500,34 @@ class Agent {
           this.currentLandmark === 'dummy' ? 1000 + Math.random() * 500 : 1200 + Math.random() * 800
         this.nextLandmarkActionAt = now + interval
         return
+      }
+      if (activeChest && activeChest.state !== 'fading' && !inDungeon.has(this.name) && !this.name.startsWith('task-')) {
+        const dx = activeChest.position.x - this.sprite.position.x
+        const dz = activeChest.position.z - this.sprite.position.z
+        const dist2 = dx * dx + dz * dz
+        if (dist2 < 1.0 * 1.0 && activeChest.claim()) {
+          emitGoldBurst(activeChest.position.x, 0.6, activeChest.position.z)
+          pushLog(`${this.name} claims treasure (${activeChest.claims}/3)`, 'spawn')
+          this.target.set((Math.random() - 0.5) * 6, 1, (Math.random() - 0.5) * 6)
+          this.state = 'walking'
+          this.walkFrameTime = 0
+          this.walkFrame = 1
+          this.targetLandmark = null
+          this.currentLandmark = null
+          this.updateLabel(`→ (${this.target.x.toFixed(1)}, ${this.target.z.toFixed(1)})`)
+          return
+        }
+      }
+      if (activeBoss && activeBoss.state === 'alive' && !inDungeon.has(this.name) && !this.name.startsWith('task-')) {
+        const dx = activeBoss.sprite.position.x - this.sprite.position.x
+        const dz = activeBoss.sprite.position.z - this.sprite.position.z
+        const dist2 = dx * dx + dz * dz
+        if (dist2 < 1.7 * 1.7) {
+          this.direction = this.computeDirection(dx, dz)
+          this.setFrame(0, this.direction)
+          this.attack()
+          return
+        }
       }
       if (now >= this.idleEndTime && this.landmarkActionsLeft === 0) this.pickNewTarget()
       if (this.state !== 'idle') {
@@ -568,6 +622,175 @@ class Agent {
   }
 }
 
+class Boss {
+  static MAX_HP = 8
+
+  sprite: THREE.Sprite
+  bodyTex: THREE.Texture
+  slashTex: THREE.Texture
+  hpBarSprite: THREE.Sprite
+  hpBarTex: THREE.CanvasTexture
+  hpBarCanvas: HTMLCanvasElement
+  hp = Boss.MAX_HP
+  walkFrame = 0
+  walkFrameTime = 0
+  direction: 0 | 1 | 2 | 3 = 2
+  state: 'alive' | 'dying' = 'alive'
+  spawnAt: number
+
+  constructor(scene: THREE.Scene, position: THREE.Vector3) {
+    const loader = new THREE.TextureLoader()
+    this.bodyTex = loader.load('/assets/sprites/legacy/char_boss_skeleton_walk.png')
+    this.bodyTex.magFilter = THREE.NearestFilter
+    this.bodyTex.minFilter = THREE.NearestFilter
+    this.bodyTex.colorSpace = THREE.SRGBColorSpace
+    this.bodyTex.repeat.set(1 / 9, 1 / 4)
+    this.bodyTex.offset.set(0, 1 / 4)
+
+    this.slashTex = loader.load('/assets/sprites/legacy/char_boss_skeleton_slash.png')
+    this.slashTex.magFilter = THREE.NearestFilter
+    this.slashTex.minFilter = THREE.NearestFilter
+    this.slashTex.colorSpace = THREE.SRGBColorSpace
+    this.slashTex.repeat.set(1 / 6, 1 / 4)
+    this.slashTex.offset.set(0, 1 / 4)
+
+    const mat = new THREE.SpriteMaterial({ map: this.bodyTex, transparent: true })
+    this.sprite = new THREE.Sprite(mat)
+    this.sprite.scale.set(3, 3, 1)
+    this.sprite.position.copy(position)
+    scene.add(this.sprite)
+
+    this.hpBarCanvas = document.createElement('canvas')
+    this.hpBarCanvas.width = 192
+    this.hpBarCanvas.height = 24
+    this.hpBarTex = new THREE.CanvasTexture(this.hpBarCanvas)
+    this.hpBarTex.colorSpace = THREE.SRGBColorSpace
+    const hpMat = new THREE.SpriteMaterial({
+      map: this.hpBarTex,
+      transparent: true,
+      depthTest: false,
+    })
+    this.hpBarSprite = new THREE.Sprite(hpMat)
+    this.hpBarSprite.scale.set(0.5, 0.0625, 1)
+    this.hpBarSprite.position.set(0, 0.85, 0)
+    this.hpBarSprite.renderOrder = 12
+    this.sprite.add(this.hpBarSprite)
+
+    this.spawnAt = performance.now()
+    this.drawHpBar()
+  }
+
+  private drawHpBar() {
+    const ctx = this.hpBarCanvas.getContext('2d')
+    if (!ctx) return
+    const w = this.hpBarCanvas.width
+    const h = this.hpBarCanvas.height
+    ctx.clearRect(0, 0, w, h)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)'
+    ctx.fillRect(0, 0, w, h)
+    const ratio = Math.max(0, this.hp / Boss.MAX_HP)
+    const hue = ratio > 0.5 ? 120 : ratio > 0.25 ? 50 : 0
+    ctx.fillStyle = `hsl(${hue}, 80%, 50%)`
+    ctx.fillRect(2, 2, (w - 4) * ratio, h - 4)
+    ctx.fillStyle = '#ffffff'
+    ctx.font = 'bold 14px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(`BOSS  ${this.hp}/${Boss.MAX_HP}`, w / 2, h / 2)
+    this.hpBarTex.needsUpdate = true
+  }
+
+  damage(amount: number): boolean {
+    if (this.state !== 'alive') return false
+    this.hp = Math.max(0, this.hp - amount)
+    this.drawHpBar()
+    this.sprite.position.x += (Math.random() - 0.5) * 0.15
+    if (this.hp <= 0) {
+      this.state = 'dying'
+      return true
+    }
+    return false
+  }
+
+  update(_now: number, dtMs: number) {
+    if (this.state !== 'alive') return
+    this.walkFrameTime += dtMs
+    if (this.walkFrameTime >= 250) {
+      this.walkFrame = (this.walkFrame + 1) % 9
+      this.bodyTex.offset.x = this.walkFrame / 9
+      this.walkFrameTime -= 250
+    }
+  }
+
+  dispose(scene: THREE.Scene) {
+    scene.remove(this.sprite)
+    this.bodyTex.dispose()
+    this.slashTex.dispose()
+    this.hpBarTex.dispose()
+    ;(this.sprite.material as THREE.SpriteMaterial).dispose()
+    ;(this.hpBarSprite.material as THREE.SpriteMaterial).dispose()
+  }
+}
+
+class Chest {
+  static MAX_CLAIMS = 3
+  static LIFETIME = 16000
+
+  sprite: THREE.Sprite
+  tex: THREE.Texture
+  position: THREE.Vector3
+  claims = 0
+  state: 'closed' | 'opening' | 'open' | 'fading' = 'closed'
+  spawnAt: number
+
+  constructor(scene: THREE.Scene, position: THREE.Vector3) {
+    const loader = new THREE.TextureLoader()
+    this.tex = loader.load('/assets/sprites/props/chest.png')
+    this.tex.magFilter = THREE.NearestFilter
+    this.tex.minFilter = THREE.NearestFilter
+    this.tex.colorSpace = THREE.SRGBColorSpace
+    this.tex.repeat.set(1 / 4, 1)
+    this.tex.offset.set(0, 0)
+    const mat = new THREE.SpriteMaterial({ map: this.tex, transparent: true })
+    this.sprite = new THREE.Sprite(mat)
+    this.sprite.scale.set(0.7, 0.7, 1)
+    this.position = position.clone()
+    this.sprite.position.copy(position)
+    this.sprite.position.y = 0.4
+    scene.add(this.sprite)
+    this.spawnAt = performance.now()
+  }
+
+  claim() {
+    if (this.state === 'fading') return false
+    this.claims += 1
+    this.tex.offset.x = Math.min(this.claims, 3) / 4
+    this.state = this.claims >= Chest.MAX_CLAIMS ? 'fading' : 'open'
+    return true
+  }
+
+  update(now: number) {
+    if (now - this.spawnAt > Chest.LIFETIME && this.state !== 'fading') {
+      this.state = 'fading'
+    }
+    if (this.state === 'fading') {
+      const mat = this.sprite.material as THREE.SpriteMaterial
+      mat.opacity = Math.max(0, mat.opacity - 0.02)
+    }
+  }
+
+  isDead(): boolean {
+    const mat = this.sprite.material as THREE.SpriteMaterial
+    return this.state === 'fading' && mat.opacity <= 0.01
+  }
+
+  dispose(scene: THREE.Scene) {
+    scene.remove(this.sprite)
+    this.tex.dispose()
+    ;(this.sprite.material as THREE.SpriteMaterial).dispose()
+  }
+}
+
 class Pet {
   static FRAME_DURATION = 250
   static FOLLOW_SPEED = 2.4
@@ -632,6 +855,30 @@ const aspect = innerWidth / innerHeight
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x1a1a1a)
+
+const DUNGEON_ENTRY = new THREE.Vector3(-1.5, 1, 0.6)
+let activeBoss: Boss | null = null
+let activeChest: Chest | null = null
+let bossDying = false
+let smokeSpawnTime = 0
+
+function spawnBoss() {
+  if (activeBoss) return
+  activeBoss = new Boss(scene, new THREE.Vector3(DUNGEON_ENTRY.x, 1.5, DUNGEON_ENTRY.z))
+  pushLog('⚔ BOSS appeared!', 'attack')
+}
+
+function spawnChest() {
+  if (activeChest) return
+  activeChest = new Chest(scene, new THREE.Vector3(DUNGEON_ENTRY.x, 0, DUNGEON_ENTRY.z + 0.4))
+  pushLog('💰 treasure chest!', 'spawn')
+}
+
+function emitGoldBurst(x: number, y: number, z: number) {
+  for (let i = 0; i < 8; i++) {
+    emitParticle('ember', x + (Math.random() - 0.5) * 0.5, y, z + (Math.random() - 0.5) * 0.5)
+  }
+}
 
 function makeCobblestoneTexture(): THREE.CanvasTexture {
   const size = 256
@@ -769,10 +1016,18 @@ function emitParticle(kind: ParticleKind, x: number, y: number, z: number) {
   if (!p) p = new Particle(scene, kind)
   if (p.kind !== kind) {
     const mat = p.sprite.material as THREE.SpriteMaterial
-    const color = kind === 'ember' ? 0xff8c3a : kind === 'dust' ? 0xc8b8a0 : 0xff7aa8
-    const scale = kind === 'ember' ? 0.08 : kind === 'dust' ? 0.12 : 0.14
+    const color =
+      kind === 'ember' ? 0xff8c3a :
+      kind === 'dust' ? 0xc8b8a0 :
+      kind === 'heart' ? 0xff7aa8 :
+      0xa8a8a8
+    const scale =
+      kind === 'ember' ? 0.08 :
+      kind === 'dust' ? 0.12 :
+      kind === 'heart' ? 0.14 :
+      0.18
     mat.color.set(color)
-    p.sprite.scale.setScalar(scale)
+    p.sprite.scale.set(scale, scale, 1)
     p.kind = kind
   }
   p.spawn(x, y, z)
@@ -1071,6 +1326,25 @@ function startDungeonRun() {
       a.pickNewTarget()
     }
     pushLog('team returned from dungeon', 'spawn')
+    if (Math.random() < 0.35 && !activeBoss) {
+      spawnBoss()
+      for (const a of agents) {
+        if (inDungeon.has(a.name)) continue
+        if (a.name.startsWith('task-')) continue
+        const target = new THREE.Vector3(
+          DUNGEON_ENTRY.x + (Math.random() - 0.5) * 1.6,
+          1,
+          DUNGEON_ENTRY.z + (Math.random() - 0.5) * 0.6,
+        )
+        if (a.state === 'attacking') {
+          window.setTimeout(() => {
+            if (activeBoss && !inDungeon.has(a.name) && !a.name.startsWith('task-')) a.goto(target)
+          }, 500)
+        } else {
+          a.goto(target)
+        }
+      }
+    }
   }, 5500 + stayDuration)
 }
 
@@ -1542,6 +1816,26 @@ function animate() {
   const dtMs = lastTime === 0 ? 0 : now - lastTime
   lastTime = now
   for (const a of agents) a.update(now, dtMs)
+  if (activeBoss) activeBoss.update(now, dtMs)
+  if (activeBoss && activeBoss.hp <= 0 && !bossDying) {
+    bossDying = true
+    pushLog('💀 boss defeated!', 'spawn')
+    window.setTimeout(() => {
+      if (activeBoss) {
+        activeBoss.dispose(scene)
+        activeBoss = null
+      }
+      spawnChest()
+      bossDying = false
+    }, 800)
+  }
+  if (activeChest) {
+    activeChest.update(now)
+    if (activeChest.isDead()) {
+      activeChest.dispose(scene)
+      activeChest = null
+    }
+  }
   for (const p of pets) p.update(now, dtMs)
   emberSpawnTime += dtMs
   while (emberSpawnTime >= 50) {
@@ -1551,6 +1845,16 @@ function animate() {
       -3 + (Math.random() - 0.5) * 0.5,
       0.7 + Math.random() * 0.3,
       -3 + 0.4 + Math.random() * 0.1,
+    )
+  }
+  smokeSpawnTime += dtMs
+  while (smokeSpawnTime >= 200) {
+    smokeSpawnTime -= 200
+    emitParticle(
+      'smoke',
+      -3 + (Math.random() - 0.5) * 0.4,
+      1.7 + Math.random() * 0.2,
+      -3 + 0.2 + Math.random() * 0.2,
     )
   }
   if (Math.random() < 0.04) {
