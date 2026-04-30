@@ -1902,6 +1902,7 @@ function spawnBoss() {
   bossIntroEl.querySelector<HTMLDivElement>('.pag-bossname')!.textContent = 'Skeleton Lord'
   pushLog('⚔ BOSS appeared!', 'attack')
   showBossIntro()
+  audio.setBgmMode('battle')
 }
 
 function spawnSlime() {
@@ -2812,10 +2813,12 @@ function startFestival() {
     const r = 1.6
     a.goto(new THREE.Vector3(-3 + Math.cos(angle) * r, 1, -2 + Math.sin(angle) * r))
   })
+  audio.setBgmMode('festival')
 }
 
 function endFestival() {
   festivalAgents = []
+  if (!activeBoss && !activeSlimeKing) audio.setBgmMode('silent')
 }
 
 function maybeHeal(now: number) {
@@ -3448,6 +3451,7 @@ function startDungeonRun() {
         bossIntroEl.querySelector<HTMLDivElement>('.pag-bossname')!.textContent = 'Slime King'
         bossIntroEl.classList.add('show')
         window.setTimeout(() => bossIntroEl.classList.remove('show'), 2000)
+        audio.setBgmMode('battle')
       }
       // フォーメーション配置: ボス位置 (-1.5, 1, 0.6) から半径 2 の半円弧 (front-facing 側、Z+ 方向)
       const bossX = -1.5
@@ -3678,6 +3682,125 @@ class AudioManager {
     src.connect(filter).connect(gain).connect(this.masterGain)
     src.start()
   }
+
+  // ─── BGM (mode-aware) ───
+  bgmMode: 'silent' | 'battle' | 'festival' = 'silent'
+  bgmGain: GainNode | null = null
+  bgmOscs: OscillatorNode[] = []
+  bgmStepIdx = 0
+  bgmStepTimerId: number | null = null
+
+  setBgmMode(mode: 'silent' | 'battle' | 'festival') {
+    if (this.bgmMode === mode) return
+    this.stopBgm()
+    this.bgmMode = mode
+    if (!this.ctx || !this.masterGain) return
+    if (mode === 'silent') return
+    this.bgmGain = this.ctx.createGain()
+    this.bgmGain.gain.value = 0
+    this.bgmGain.connect(this.masterGain)
+    // fade in
+    const now = this.ctx.currentTime
+    this.bgmGain.gain.setTargetAtTime(0.18, now, 0.4)
+    if (mode === 'battle') this.startBattleBgm()
+    else if (mode === 'festival') this.startFestivalBgm()
+  }
+
+  private stopBgm() {
+    if (this.bgmStepTimerId !== null) {
+      clearTimeout(this.bgmStepTimerId)
+      this.bgmStepTimerId = null
+    }
+    for (const o of this.bgmOscs) {
+      try { o.stop() } catch { /* already stopped */ }
+    }
+    this.bgmOscs = []
+    if (this.bgmGain && this.ctx) {
+      const g = this.bgmGain
+      const now = this.ctx.currentTime
+      g.gain.cancelScheduledValues(now)
+      g.gain.setTargetAtTime(0, now, 0.2)
+      window.setTimeout(() => { try { g.disconnect() } catch { /* */ } }, 800)
+      this.bgmGain = null
+    }
+  }
+
+  private startBattleBgm() {
+    if (!this.ctx || !this.bgmGain) return
+    // Low drone (sustained) — minor mode root
+    const drone = this.ctx.createOscillator()
+    drone.type = 'sawtooth'
+    drone.frequency.value = 87.31   // F2
+    const droneFilter = this.ctx.createBiquadFilter()
+    droneFilter.type = 'lowpass'
+    droneFilter.frequency.value = 320
+    const droneGain = this.ctx.createGain()
+    droneGain.gain.value = 0.3
+    drone.connect(droneFilter).connect(droneGain).connect(this.bgmGain)
+    drone.start()
+    this.bgmOscs.push(drone)
+
+    // Melody pattern (8 steps, eighth notes at 140 BPM => 214ms per step)
+    const stepMs = 214
+    const NOTES = [220.0, 261.63, 311.13, 261.63, 233.08, 261.63, 311.13, 349.23]   // F minor riff
+    const playStep = () => {
+      if (this.bgmMode !== 'battle' || !this.ctx || !this.bgmGain) return
+      const f = NOTES[this.bgmStepIdx % NOTES.length]
+      this.bgmStepIdx += 1
+      const o = this.ctx.createOscillator()
+      o.type = 'square'
+      o.frequency.value = f
+      const g = this.ctx.createGain()
+      const n = this.ctx.currentTime
+      g.gain.setValueAtTime(0, n)
+      g.gain.linearRampToValueAtTime(0.18, n + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.001, n + 0.18)
+      o.connect(g).connect(this.bgmGain)
+      o.start(n)
+      o.stop(n + 0.2)
+      // Bass thump every 4 steps
+      if (this.bgmStepIdx % 4 === 1) {
+        const bass = this.ctx.createOscillator()
+        bass.type = 'sine'
+        bass.frequency.value = 65.41   // C2
+        const bg = this.ctx.createGain()
+        bg.gain.setValueAtTime(0, n)
+        bg.gain.linearRampToValueAtTime(0.5, n + 0.02)
+        bg.gain.exponentialRampToValueAtTime(0.001, n + 0.4)
+        bass.connect(bg).connect(this.bgmGain)
+        bass.start(n)
+        bass.stop(n + 0.45)
+      }
+      this.bgmStepTimerId = window.setTimeout(playStep, stepMs)
+    }
+    playStep()
+  }
+
+  private startFestivalBgm() {
+    if (!this.ctx || !this.bgmGain) return
+    // Cheerful 4-note repeating pattern at 160 BPM
+    const stepMs = 187
+    const NOTES = [523.25, 659.25, 783.99, 659.25, 523.25, 659.25, 880.0, 783.99]   // C major bouncy
+    this.bgmStepIdx = 0
+    const playStep = () => {
+      if (this.bgmMode !== 'festival' || !this.ctx || !this.bgmGain) return
+      const f = NOTES[this.bgmStepIdx % NOTES.length]
+      this.bgmStepIdx += 1
+      const o = this.ctx.createOscillator()
+      o.type = 'triangle'
+      o.frequency.value = f
+      const g = this.ctx.createGain()
+      const n = this.ctx.currentTime
+      g.gain.setValueAtTime(0, n)
+      g.gain.linearRampToValueAtTime(0.22, n + 0.015)
+      g.gain.exponentialRampToValueAtTime(0.001, n + 0.16)
+      o.connect(g).connect(this.bgmGain)
+      o.start(n)
+      o.stop(n + 0.18)
+      this.bgmStepTimerId = window.setTimeout(playStep, stepMs)
+    }
+    playStep()
+  }
 }
 
 const audio = new AudioManager()
@@ -3804,9 +3927,11 @@ function findAgent(n: string): Agent | undefined {
 const mainAgent = findAgent('main')
 const mageAgent = findAgent('mage')
 const knightAgent = findAgent('knight')
+const rogueAgent = findAgent('rogue')
 if (mainAgent) pets.push(new Pet(scene, '/assets/sprites/pets/slime.png', mainAgent, new THREE.Vector3(-0.6, 0, 0.5)))
 if (mageAgent) pets.push(new Pet(scene, '/assets/sprites/pets/cat.png', mageAgent, new THREE.Vector3(0.6, 0, 0.5)))
 if (knightAgent) pets.push(new Pet(scene, '/assets/sprites/pets/dog.png', knightAgent, new THREE.Vector3(-0.6, 0, 0.5)))
+if (rogueAgent) pets.push(new Pet(scene, '/assets/sprites/pets/wolf.png', rogueAgent, new THREE.Vector3(0.6, 0, 0.5)))
 
 function dispatch(event: AgentEvent) {
   if (event.type === 'spawn') {
@@ -4159,6 +4284,7 @@ function animate() {
     refreshStats()
     pushLog('💀 boss defeated!', 'spawn')
     showVictoryPanel()
+    audio.setBgmMode('silent')
     window.setTimeout(() => {
       if (activeBoss) {
         activeBoss.dispose(scene)
@@ -4176,6 +4302,7 @@ function animate() {
       stats.bosses += 1
       refreshStats()
       showVictoryPanel()
+      audio.setBgmMode('silent')
       window.setTimeout(() => {
         if (activeSlimeKing) {
           activeSlimeKing.dispose(scene)
@@ -4487,6 +4614,7 @@ function animate() {
     camera.lookAt(0, 0, 0)
     cameraShakeAmount = 0
   }
+  tickFireSpread(now, dtMs)
   renderer.render(scene, camera)
 }
 
@@ -4689,6 +4817,142 @@ function handleHookEvent(payload: any) {
 
 setInterval(pollHookEvents, 500)
 void pollHookEvents()
+
+// ────────────────────────────────────────────
+// Fire spread event (rare): hearth overflows, agents converge to contain
+// ────────────────────────────────────────────
+
+let fireSpreadEndAt = 0
+let nextFireSpreadAt = 0
+let fireSpreadAgents: Agent[] = []
+
+function startFireSpread(now: number) {
+  if (fireSpreadEndAt > now) return
+  fireSpreadEndAt = now + 14000
+  pushLog('🔥 FIRE SPREADS from the hearth!', 'attack')
+  shakeCamera(0.4)
+  // 3-5 agents converge to the fireplace front
+  const candidates = Agent.all.filter((a) =>
+    !inDungeon.has(a.name) &&
+    !inTent.has(a.name) &&
+    !inBunkbed.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping,
+  )
+  fireSpreadAgents = candidates.slice(0, 5)
+  fireSpreadAgents.forEach((a, i) => {
+    const angle = -Math.PI / 4 + (Math.PI / 2) * (i / Math.max(1, fireSpreadAgents.length - 1))
+    a.goto(new THREE.Vector3(-3 + Math.cos(angle) * 1.5, 1, -3 + Math.sin(angle) * 1.5))
+    a.showTool('extinguish!', 2200)
+  })
+}
+
+function tickFireSpread(now: number, dtMs: number) {
+  if (nextFireSpreadAt === 0) nextFireSpreadAt = now + 360000   // 6 min warmup
+  if (now >= nextFireSpreadAt && fireSpreadEndAt < now) {
+    if (Math.random() < 0.5 && currentWeather === 'clear' && !activeBoss && !activeSlimeKing) {
+      startFireSpread(now)
+    }
+    nextFireSpreadAt = now + 600000 + Math.random() * 300000   // 10-15 min interval
+  }
+  if (fireSpreadEndAt > now) {
+    // Visual: dense burn-flame burst around fireplace, extra fireLight intensity
+    if (Math.random() < 0.5) {
+      const radius = 1.6 + Math.random() * 1.6
+      const angle = Math.random() * Math.PI * 2
+      emitParticle(
+        'burn-flame',
+        -3 + Math.cos(angle) * radius,
+        0.5 + Math.random() * 1.2,
+        -3 + Math.sin(angle) * radius,
+      )
+    }
+    if (Math.random() < 0.3) {
+      emitParticle('smoke', -3 + (Math.random() - 0.5) * 3, 1.5 + Math.random(), -3 + (Math.random() - 0.5) * 3)
+    }
+    fireLight.intensity = 14 + Math.random() * 6
+    void dtMs
+  } else if (fireSpreadAgents.length > 0) {
+    pushLog('✓ fire contained', 'spawn')
+    for (const a of fireSpreadAgents) {
+      a.showTool('phew…', 1400)
+    }
+    fireSpreadAgents = []
+  }
+}
+
+// ────────────────────────────────────────────
+// Equipment class icon — small canvas badge next to label
+// ────────────────────────────────────────────
+
+function classOfAgent(name: string): { icon: string; color: string } | null {
+  if (name.startsWith('npc-')) return null
+  if (name.startsWith('task-')) return { icon: '✦', color: '#80ff80' }
+  if (name.includes('main') || name === 'sub-1' || name === 'sub-2') return { icon: '⚔', color: '#fff8e8' }
+  if (name.includes('archer') || name.includes('scout')) return { icon: '🏹', color: '#a0d8a0' }
+  if (name.includes('healer')) return { icon: '✚', color: '#80ff80' }
+  if (name.includes('mage')) return { icon: '✦', color: '#c080ff' }
+  if (name.includes('knight')) return { icon: '🛡', color: '#a0c0ff' }
+  if (name.includes('rogue')) return { icon: '🗡', color: '#ffa040' }
+  if (name.includes('peasant')) return { icon: '⚒', color: '#c0a060' }
+  return { icon: '◆', color: '#fff8e8' }
+}
+
+function drawClassBadgeCanvas(canvas: HTMLCanvasElement, info: { icon: string; color: string } | null) {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  if (!info) return
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.65)'
+  ctx.beginPath()
+  ctx.arc(canvas.width / 2, canvas.height / 2, canvas.width / 2 - 2, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.strokeStyle = info.color
+  ctx.lineWidth = 2
+  ctx.stroke()
+  ctx.fillStyle = info.color
+  ctx.font = `bold ${canvas.width - 20}px serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(info.icon, canvas.width / 2, canvas.height / 2 + 1)
+}
+
+// Attach class badge sprites to all current agents (including ones spawned later)
+function attachClassBadge(a: Agent) {
+  if ((a as any).classBadgeSprite) return
+  const info = classOfAgent(a.name)
+  if (!info) return
+  const canvas = document.createElement('canvas')
+  canvas.width = 48
+  canvas.height = 48
+  drawClassBadgeCanvas(canvas, info)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.minFilter = THREE.LinearFilter
+  tex.magFilter = THREE.LinearFilter
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false })
+  const sprite = new THREE.Sprite(mat)
+  sprite.scale.set(0.4, 0.4, 1)
+  sprite.position.set(-0.7, 1.5, 0)   // left of label
+  sprite.renderOrder = 12
+  a.sprite.add(sprite)
+  ;(a as any).classBadgeCanvas = canvas
+  ;(a as any).classBadgeTex = tex
+  ;(a as any).classBadgeSprite = sprite
+}
+
+for (const a of Agent.all) attachClassBadge(a)
+// Hook into spawn to add badge for future agents — wrap dispatch's spawn
+const _origDispatch = window.pag.dispatch
+window.pag.dispatch = (event: AgentEvent) => {
+  _origDispatch(event)
+  if (event.type === 'spawn') {
+    const a = agents.find((x) => x.name === event.agentId)
+    if (a) attachClassBadge(a)
+  }
+}
 
 // ────────────────────────────────────────────
 // Minimap, quest log history, achievement badges
