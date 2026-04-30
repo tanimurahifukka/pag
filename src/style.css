@@ -212,3 +212,38 @@ body { margin:0; overflow:hidden; }
 #pag-encounter.show .pag-encounter-text {
   transform: scale(1.0);
 }
+
+#pag-chapter {
+  position: fixed;
+  top: 25%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  z-index: 13;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
+}
+#pag-chapter.show { opacity: 1; }
+#pag-chapter .pag-chapter-roman {
+  color: #fff8e8;
+  font-family: serif;
+  font-size: 26px;
+  letter-spacing: 0.4em;
+  text-shadow: 0 0 8px #000, 0 0 16px #4a3a30;
+  margin-bottom: 6px;
+}
+#pag-chapter .pag-chapter-title {
+  color: #ffd870;
+  font-family: serif;
+  font-size: 44px;
+  font-weight: bold;
+  text-shadow: 0 0 14px #4a3a30, 0 0 4px #000;
+}
+#pag-chapter .pag-chapter-sub {
+  color: #fff8e8;
+  font-family: serif;
+  font-size: 16px;
+  margin-top: 8px;
+  opacity: 0.85;
+}

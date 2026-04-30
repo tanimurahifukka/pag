@@ -26,6 +26,31 @@ type ParticleKind =
   | 'butterfly'
   | 'firefly'
   | 'star'
+  | 'poison-drip'
+  | 'burn-flame'
+  | 'paralysis'
+
+type AgentStatus = 'none' | 'poison' | 'burn' | 'paralysis'
+
+const CHAPTER_TITLES = [
+  'The Caverns Below', 'Awakening of the Hunt', 'Ember of the Hearth',
+  'Whispering Halls', 'The Quiet Dawn', 'Echoes in the Vault',
+  'Beneath the Cobblestones', 'When the Night Lights Up',
+  'A Pact with the Crystal', 'The Weight of Steel',
+]
+const ROMANS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII']
+const DIALOG_LINES = [
+  'I sense danger…', 'Did you hear that?', 'The fire feels good',
+  'Another quest!', 'Where to next?', 'Take care, friend',
+  'My blade is ready', 'A long road awaits', 'Rest well, hero',
+  'Look at the stars', 'Have you seen the chest?', 'I need a potion',
+  'The crystal hums', 'Shall we hunt?', 'No turning back now',
+  'I felt magic in the air', 'For glory!', 'Onward!',
+]
+
+let chapterCount = 0
+let nextChapterAt = 0
+let nextDialogAt = 0
 
 declare global {
   interface Window {
@@ -52,6 +77,9 @@ class Particle {
       kind === 'butterfly' ? 0xffd0e0 :
       kind === 'firefly' ? 0xfff080 :
       kind === 'star' ? 0xffffff :
+      kind === 'poison-drip' ? 0x60ff60 :
+      kind === 'burn-flame' ? 0xff6020 :
+      kind === 'paralysis' ? 0xfff080 :
       0xffd870
     const scale =
       kind === 'ember' ? 0.08 :
@@ -62,6 +90,9 @@ class Particle {
       kind === 'butterfly' ? 0.10 :
       kind === 'firefly' ? 0.06 :
       kind === 'star' ? 0.08 :
+      kind === 'poison-drip' ? 0.08 :
+      kind === 'burn-flame' ? 0.10 :
+      kind === 'paralysis' ? 0.06 :
       0.10
     const mat = new THREE.SpriteMaterial({
       color,
@@ -146,6 +177,15 @@ class Particle {
     } else if (this.kind === 'star') {
       this.maxLife = 1200 + Math.random() * 600
       this.velocity.set(4 + Math.random() * 2, 0, 0)
+    } else if (this.kind === 'poison-drip') {
+      this.maxLife = 800
+      this.velocity.set((Math.random() - 0.5) * 0.2, -0.6, (Math.random() - 0.5) * 0.2)
+    } else if (this.kind === 'burn-flame') {
+      this.maxLife = 600
+      this.velocity.set((Math.random() - 0.5) * 0.4, 0.9 + Math.random() * 0.5, (Math.random() - 0.5) * 0.4)
+    } else if (this.kind === 'paralysis') {
+      this.maxLife = 400
+      this.velocity.set((Math.random() - 0.5) * 1.0, (Math.random() - 0.5) * 1.0, (Math.random() - 0.5) * 1.0)
     }
     this.sprite.visible = true
     const mat = this.sprite.material as THREE.SpriteMaterial
@@ -210,6 +250,16 @@ class Particle {
       mat.opacity = flicker * (1 - this.lifetime / this.maxLife)
     } else if (this.kind === 'star') {
       mat.opacity = 1 - this.lifetime / this.maxLife
+    } else if (this.kind === 'poison-drip') {
+      const t = this.lifetime / this.maxLife
+      mat.opacity = 1 - t
+    } else if (this.kind === 'burn-flame') {
+      const t = this.lifetime / this.maxLife
+      mat.opacity = 1 - t
+      mat.color.setRGB(1.0, 0.5 - t * 0.3, 0.2 + t * 0.3)
+    } else if (this.kind === 'paralysis') {
+      const t = this.lifetime / this.maxLife
+      mat.opacity = (Math.sin(this.lifetime / 30) > 0 ? 1 : 0.3) * (1 - t)
     }
 
     return true
@@ -309,6 +359,7 @@ class Agent {
   static ARRIVAL_THRESHOLD = 0.05
   static MIN_SEPARATION = 0.8
   static FLOOR_HALF = 4
+  static STATUS_CHANCE = 0.0008
   static all: Agent[] = []
   static landmarks: { name: string; position: THREE.Vector3; faceDir: 0 | 1 | 2 | 3 }[] = []
   static EMOTES = ['♪', '!', '?', '♥', '☆', 'z…', '⋯', '♬']
@@ -327,7 +378,12 @@ class Agent {
   bubbleSprite: THREE.Sprite
   bubbleTex: THREE.CanvasTexture
   bubbleCanvas: HTMLCanvasElement
+  statusIconSprite?: THREE.Sprite
+  statusIconCanvas?: HTMLCanvasElement
+  statusIconTex?: THREE.CanvasTexture
   bubbleHideAt = 0
+  status: AgentStatus = 'none'
+  statusEndAt = 0
   currentIntent = 'idle'
   state: 'idle' | 'walking' | 'attacking' = 'idle'
   prevState: 'idle' | 'walking' = 'idle'
@@ -347,6 +403,8 @@ class Agent {
   errorFlashEnd = 0
   isSleeping = false
   sleepEndAt = 0
+  private _origTintRGB?: { r: number; g: number; b: number }
+  private _statusEmitAt = 0
 
   constructor(
     scene: THREE.Scene,
@@ -453,6 +511,25 @@ class Agent {
     this.bubbleSprite.visible = false
     this.sprite.add(this.bubbleSprite)
 
+    this.statusIconCanvas = document.createElement('canvas')
+    this.statusIconCanvas.width = 64
+    this.statusIconCanvas.height = 64
+    this.statusIconTex = new THREE.CanvasTexture(this.statusIconCanvas)
+    this.statusIconTex.colorSpace = THREE.SRGBColorSpace
+    this.statusIconTex.minFilter = THREE.LinearFilter
+    this.statusIconTex.magFilter = THREE.LinearFilter
+    const iconMat = new THREE.SpriteMaterial({
+      map: this.statusIconTex,
+      transparent: true,
+      depthTest: false,
+    })
+    this.statusIconSprite = new THREE.Sprite(iconMat)
+    this.statusIconSprite.scale.set(0.5, 0.5, 1)
+    this.statusIconSprite.position.set(0.7, 1.5, 0)
+    this.statusIconSprite.renderOrder = 12
+    this.statusIconSprite.visible = false
+    this.sprite.add(this.statusIconSprite)
+
     if (options?.slashUrl) {
       const slashLoader = new THREE.TextureLoader()
       this.slashTex = slashLoader.load(options.slashUrl)
@@ -557,6 +634,32 @@ class Agent {
     this.bubbleTex.needsUpdate = true
   }
 
+  private drawStatusIcon(status: AgentStatus) {
+    if (!this.statusIconCanvas || !this.statusIconTex || !this.statusIconSprite) return
+    if (status === 'none') {
+      this.statusIconSprite.visible = false
+      return
+    }
+    const ctx = this.statusIconCanvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, 64, 64)
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'
+    ctx.beginPath()
+    ctx.arc(32, 32, 26, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = status === 'poison' ? '#60ff60' : status === 'burn' ? '#ff6020' : '#fff080'
+    ctx.lineWidth = 3
+    ctx.stroke()
+    ctx.fillStyle = ctx.strokeStyle as string
+    ctx.font = 'bold 28px serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const symbol = status === 'poison' ? '☠' : status === 'burn' ? '✦' : '⚡'
+    ctx.fillText(symbol, 32, 32)
+    this.statusIconTex.needsUpdate = true
+    this.statusIconSprite.visible = true
+  }
+
   showTool(toolName: string, durationMs = 1800) {
     this.drawBubble(toolName)
     this.bubbleSprite.visible = true
@@ -643,6 +746,53 @@ class Agent {
     } else if (this.errorFlashEnd > 0) {
       bodyMat.color.setRGB(1, 1, 1)
       this.errorFlashEnd = 0
+    }
+
+    if (
+      this.status === 'none' &&
+      this.state === 'idle' &&
+      !this.isSleeping &&
+      !inDungeon.has(this.name) &&
+      !this.name.startsWith('task-') &&
+      !this.name.startsWith('npc-') &&
+      Math.random() < Agent.STATUS_CHANCE
+    ) {
+      const roll = Math.random()
+      this.status = roll < 0.4 ? 'poison' : roll < 0.75 ? 'burn' : 'paralysis'
+      this.statusEndAt = now + 6000 + Math.random() * 6000
+      this.drawStatusIcon(this.status)
+      pushLog(`${this.name} afflicted with ${this.status}`, 'attack')
+    }
+
+    if (this.status !== 'none' && now >= this.statusEndAt) {
+      this.status = 'none'
+      this.drawStatusIcon('none')
+      if (this._origTintRGB) {
+        bodyMat.color.setRGB(this._origTintRGB.r, this._origTintRGB.g, this._origTintRGB.b)
+      } else {
+        bodyMat.color.setRGB(1, 1, 1)
+      }
+    }
+
+    if (this.status !== 'none') {
+      if (!this._origTintRGB) {
+        this._origTintRGB = { r: bodyMat.color.r, g: bodyMat.color.g, b: bodyMat.color.b }
+      }
+      const pulse = 0.7 + 0.3 * Math.sin(now / 150)
+      if (this.status === 'poison') bodyMat.color.setRGB(0.5 * pulse, 1.0, 0.4 * pulse)
+      else if (this.status === 'burn') bodyMat.color.setRGB(1.0, 0.5 * pulse, 0.3 * pulse)
+      else if (this.status === 'paralysis') bodyMat.color.setRGB(1.0, 0.95, 0.5 * pulse)
+
+      if (now >= this._statusEmitAt) {
+        this._statusEmitAt = now + 250
+        if (this.status === 'poison') {
+          emitParticle('poison-drip', this.sprite.position.x, this.sprite.position.y + 0.3, this.sprite.position.z)
+        } else if (this.status === 'burn') {
+          emitParticle('burn-flame', this.sprite.position.x, this.sprite.position.y + 0.5, this.sprite.position.z)
+        } else if (this.status === 'paralysis') {
+          emitParticle('paralysis', this.sprite.position.x, this.sprite.position.y + 0.5, this.sprite.position.z)
+        }
+      }
     }
 
     if (this.state === 'attacking') {
@@ -1867,6 +2017,18 @@ const encounterEl = (() => {
   return el
 })()
 
+const chapterEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-chapter'
+  el.innerHTML = `
+    <div class="pag-chapter-roman" data-roman>I</div>
+    <div class="pag-chapter-title" data-title>—</div>
+    <div class="pag-chapter-sub" data-sub>—</div>
+  `
+  document.body.appendChild(el)
+  return el
+})()
+
 function showEncounterFlash() {
   encounterEl.classList.add('show')
   setTimeout(() => encounterEl.classList.remove('show'), 600)
@@ -1875,6 +2037,19 @@ function showEncounterFlash() {
 function showBossIntro() {
   bossIntroEl.classList.add('show')
   window.setTimeout(() => bossIntroEl.classList.remove('show'), 2000)
+}
+
+function showChapter() {
+  chapterCount += 1
+  const title = CHAPTER_TITLES[Math.floor(Math.random() * CHAPTER_TITLES.length)]
+  const roman = ROMANS[Math.min(chapterCount - 1, ROMANS.length - 1)]
+  const tod = timeOfDay()
+  chapterEl.querySelector<HTMLDivElement>('[data-roman]')!.textContent = `- Chapter ${roman} -`
+  chapterEl.querySelector<HTMLDivElement>('[data-title]')!.textContent = title
+  chapterEl.querySelector<HTMLDivElement>('[data-sub]')!.textContent = `at ${tod}`
+  chapterEl.classList.add('show')
+  window.setTimeout(() => chapterEl.classList.remove('show'), 4000)
+  pushLog(`Chapter ${roman}: ${title}`, 'spawn')
 }
 
 function showVictoryPanel() {
@@ -1911,6 +2086,23 @@ function maybeLevelUp(now: number) {
   if (candidates.length === 0) return
   const a = candidates[Math.floor(Math.random() * candidates.length)]
   triggerLevelUp(a)
+}
+
+function maybeDialog(now: number) {
+  if (nextDialogAt === 0) nextDialogAt = now + 8000
+  if (now < nextDialogAt) return
+  nextDialogAt = now + 6000 + Math.random() * 8000
+  const candidates = Agent.all.filter((a) =>
+    !inDungeon.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping
+  )
+  if (candidates.length === 0) return
+  const a = candidates[Math.floor(Math.random() * candidates.length)]
+  const line = DIALOG_LINES[Math.floor(Math.random() * DIALOG_LINES.length)]
+  a.showTool(line, 2400)
 }
 
 function triggerLevelUp(a: Agent) {
@@ -2873,6 +3065,12 @@ function animate() {
   }
   maybeCrystalVisit(now)
   maybeLevelUp(now)
+  maybeDialog(now)
+  if (nextChapterAt === 0) nextChapterAt = now + 30000
+  if (now >= nextChapterAt) {
+    showChapter()
+    nextChapterAt = now + 240000 + Math.random() * 120000
+  }
   if (nextWeatherCheckAt === 0) nextWeatherCheckAt = now + 60000
   if (now >= nextWeatherCheckAt) {
     if (currentWeather === 'clear' && Math.random() < 0.4) {
