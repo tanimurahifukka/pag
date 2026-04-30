@@ -348,6 +348,13 @@ function emitDamageNumber(x: number, y: number, z: number, value: number, critic
   }
 }
 
+function directionToVec(d: 0 | 1 | 2 | 3): { x: number; z: number } {
+  if (d === 0) return { x: 0, z: -1 }
+  if (d === 1) return { x: -1, z: 0 }
+  if (d === 2) return { x: 0, z: 1 }
+  return { x: 1, z: 0 }
+}
+
 class Agent {
   static WALK_SPEED = 1.5
   static IDLE_MIN = 800
@@ -387,6 +394,7 @@ class Agent {
   currentIntent = 'idle'
   state: 'idle' | 'walking' | 'attacking' = 'idle'
   prevState: 'idle' | 'walking' = 'idle'
+  follow?: { leader: Agent; gap: number }
   target: THREE.Vector3
   direction: 0 | 1 | 2 | 3 = 2
   walkFrame = 1
@@ -854,6 +862,35 @@ class Agent {
       if (this.slashTex) {
         this.slashTex.offset.x = this.slashFrame / Agent.SLASH_FRAME_COUNT
         this.slashTex.offset.y = (3 - this.direction) / 4
+      }
+      return
+    }
+
+    // フォロー追従モード（caterpillar）
+    if (this.follow && this.follow.leader.sprite.visible) {
+      const leader = this.follow.leader
+      const dirVec = directionToVec(leader.direction)
+      const tx = leader.sprite.position.x - dirVec.x * this.follow.gap
+      const tz = leader.sprite.position.z - dirVec.z * this.follow.gap
+      const dx = tx - this.sprite.position.x
+      const dz = tz - this.sprite.position.z
+      const dist = Math.sqrt(dx * dx + dz * dz)
+      if (dist > 0.05) {
+        const dt = dtMs / 1000
+        const step = Math.min(Agent.WALK_SPEED * dt, dist)
+        const vx = dx / dist
+        const vz = dz / dist
+        this.sprite.position.x += vx * step
+        this.sprite.position.z += vz * step
+        this.direction = this.computeDirection(vx, vz)
+        this.walkFrameTime += dtMs
+        if (this.walkFrameTime >= Agent.WALK_FRAME_DURATION) {
+          this.walkFrame = this.walkFrame >= 8 ? 1 : this.walkFrame + 1
+          this.walkFrameTime -= Agent.WALK_FRAME_DURATION
+        }
+        this.setFrame(this.walkFrame, this.direction)
+      } else {
+        this.setFrame(0, this.direction)
       }
       return
     }
@@ -1583,6 +1620,26 @@ walls.add(westWall)
 
 scene.add(walls)
 
+const tent = new THREE.Group()
+const tentBody = new THREE.Mesh(
+  new THREE.ConeGeometry(0.8, 1.2, 4),
+  new THREE.MeshStandardMaterial({ color: 0x6b3a2a }),
+)
+tentBody.position.y = 0.6
+tentBody.rotation.y = Math.PI / 4
+tent.add(tentBody)
+
+const tentDoor = new THREE.Mesh(
+  new THREE.BoxGeometry(0.4, 0.5, 0.05),
+  new THREE.MeshStandardMaterial({ color: 0x1a1010 }),
+)
+tentDoor.position.set(0, 0.25, 0.5)
+tent.add(tentDoor)
+tent.position.set(-1.5, 0, -3)
+scene.add(tent)
+
+Agent.landmarks.push({ name: 'tent', position: new THREE.Vector3(-1.5, 1, -2.2), faceDir: 0 })
+
 const fireplace = new THREE.Group()
 const fireplaceFrame = new THREE.Mesh(
   new THREE.BoxGeometry(1.2, 1.5, 0.6),
@@ -2066,11 +2123,23 @@ function showVictoryPanel() {
 }
 
 const inDungeon = new Set<string>()
+const inTent = new Set<string>()
+const CLASS_SPRITES: { walk: string; slash: string; label: string }[] = [
+  { walk: '/assets/sprites/legacy/char_main_walk.png', slash: '/assets/sprites/legacy/char_main_slash.png', label: 'warrior' },
+  { walk: '/assets/sprites/legacy/char_archer_walk.png', slash: '/assets/sprites/legacy/char_archer_slash.png', label: 'archer' },
+  { walk: '/assets/sprites/legacy/char_healer_walk.png', slash: '/assets/sprites/legacy/char_healer_slash.png', label: 'healer' },
+  { walk: '/assets/sprites/legacy/char_mage_walk.png', slash: '/assets/sprites/legacy/char_mage_slash.png', label: 'mage' },
+  { walk: '/assets/sprites/legacy/char_rogue_walk.png', slash: '/assets/sprites/legacy/char_rogue_slash.png', label: 'rogue' },
+  { walk: '/assets/sprites/legacy/char_peasant_walk.png', slash: '/assets/sprites/legacy/char_peasant_slash.png', label: 'peasant' },
+  { walk: '/assets/sprites/legacy/char_knight_walk.png', slash: '/assets/sprites/legacy/char_knight_slash.png', label: 'knight' },
+]
 let nextDungeonAt = 0
 let nextDramaAt = 0
 let nextNpcAt = 0
 let nextCrystalVisitAt = 0
 let nextLevelUpAt = 0
+let nextTentSendAt = 0
+let nextClassChangeAt = 0
 
 function maybeLevelUp(now: number) {
   if (nextLevelUpAt === 0) nextLevelUpAt = now + 80000
@@ -2103,6 +2172,116 @@ function maybeDialog(now: number) {
   const a = candidates[Math.floor(Math.random() * candidates.length)]
   const line = DIALOG_LINES[Math.floor(Math.random() * DIALOG_LINES.length)]
   a.showTool(line, 2400)
+}
+
+function maybeSendToTent(now: number) {
+  if (timeOfDay() !== 'night') return
+  const initialDelay = currentWeather === 'rainy' ? 5000 : 10000
+  if (nextTentSendAt === 0) nextTentSendAt = now + initialDelay
+  if (now < nextTentSendAt) return
+  const nextDelay = currentWeather === 'rainy'
+    ? 12000 + Math.random() * 18000
+    : 25000 + Math.random() * 25000
+  nextTentSendAt = now + nextDelay
+  if (inTent.size >= 3) return
+  const candidates = Agent.all.filter((a) =>
+    !inDungeon.has(a.name) &&
+    !inTent.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping
+  )
+  if (candidates.length === 0) return
+  const a = candidates[Math.floor(Math.random() * candidates.length)]
+  inTent.add(a.name)
+  a.goto(new THREE.Vector3(-1.5, 1, -2.2))
+  pushLog(`${a.name} retires to the tent`, 'idle')
+  window.setTimeout(() => {
+    if (!inTent.has(a.name)) return
+    a.sprite.visible = false
+    pushLog(`${a.name} sleeps in the tent`, 'idle')
+  }, 4500)
+}
+
+function maybeReleaseFromTent(_now: number) {
+  const tod = timeOfDay()
+  if (tod === 'morning' || tod === 'day') {
+    for (const name of Array.from(inTent)) {
+      const a = agents.find((x) => x.name === name)
+      if (!a) {
+        inTent.delete(name)
+        continue
+      }
+      a.sprite.visible = true
+      a.sprite.position.set(-1.5 + (Math.random() - 0.5) * 0.4, 1, -2.0)
+      a.pickNewTarget()
+      inTent.delete(name)
+      pushLog(`${name} wakes up`, 'spawn')
+    }
+  }
+}
+
+function maybeClassChange(now: number) {
+  if (nextClassChangeAt === 0) nextClassChangeAt = now + 90000
+  if (now < nextClassChangeAt) return
+  nextClassChangeAt = now + 240000 + Math.random() * 180000
+
+  const candidates = Agent.all.filter((a) =>
+    !inDungeon.has(a.name) &&
+    !inTent.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping
+  )
+  if (candidates.length === 0) return
+  const a = candidates[Math.floor(Math.random() * candidates.length)]
+  const cls = CLASS_SPRITES[Math.floor(Math.random() * CLASS_SPRITES.length)]
+
+  const loader = new THREE.TextureLoader()
+  const newWalk = loader.load(cls.walk)
+  newWalk.magFilter = THREE.NearestFilter
+  newWalk.minFilter = THREE.NearestFilter
+  newWalk.colorSpace = THREE.SRGBColorSpace
+  newWalk.repeat.set(1 / 9, 1 / 4)
+  newWalk.offset.set(0, 1 / 4)
+  a.bodyTex.dispose()
+  a.bodyTex = newWalk
+  ;(a.sprite.material as THREE.SpriteMaterial).map = newWalk
+  ;(a.sprite.material as THREE.SpriteMaterial).needsUpdate = true
+
+  if (a.slashTex) {
+    a.slashTex.dispose()
+    const newSlash = loader.load(cls.slash)
+    newSlash.magFilter = THREE.NearestFilter
+    newSlash.minFilter = THREE.NearestFilter
+    newSlash.colorSpace = THREE.SRGBColorSpace
+    newSlash.repeat.set(1 / 6, 1 / 4)
+    newSlash.offset.set(0, 1 / 4)
+    a.slashTex = newSlash
+  }
+
+  for (let i = 0; i < 14; i++) {
+    const angle = (i / 14) * Math.PI * 2
+    emitParticle(
+      'star',
+      a.sprite.position.x + Math.cos(angle) * 0.3,
+      a.sprite.position.y + 0.4,
+      a.sprite.position.z + Math.sin(angle) * 0.3,
+    )
+  }
+  floatingNumbers.push(new FloatingNumber(
+    scene,
+    a.sprite.position.x,
+    a.sprite.position.y + 1.0,
+    a.sprite.position.z,
+    `→ ${cls.label.toUpperCase()}!`,
+    '#80c0ff',
+    true,
+  ))
+  a.showTool(`→ ${cls.label}`, 2400)
+  pushLog(`${a.name} changes class to ${cls.label}`, 'spawn')
 }
 
 function triggerLevelUp(a: Agent) {
@@ -2248,9 +2427,16 @@ function tickQuest(now: number) {
   }
 
   if (questPhase === 'gathering' && now >= questPhaseTimer) {
-    for (const a of questTeam) {
-      inDungeon.add(a.name)
-      a.goto(new THREE.Vector3(-1.5, 1, 0.6))
+    if (questTeam.length > 0) {
+      const leader = questTeam[0]
+      inDungeon.add(leader.name)
+      leader.follow = undefined
+      leader.goto(new THREE.Vector3(-1.5, 1, 0.6))
+      for (let i = 1; i < questTeam.length; i++) {
+        const member = questTeam[i]
+        inDungeon.add(member.name)
+        member.follow = { leader: questTeam[i - 1], gap: 0.6 }
+      }
     }
     questPhase = 'in-dungeon'
     questPhaseTimer = now + 6000
@@ -2270,6 +2456,7 @@ function tickQuest(now: number) {
       a.sprite.visible = true
       a.sprite.position.set(-1.5 + (Math.random() - 0.5) * 0.6, 1, 0.6 + Math.random() * 0.3)
       inDungeon.delete(a.name)
+      a.follow = undefined
       a.pickNewTarget()
     }
     for (let i = 0; i < 12; i++) {
@@ -3066,6 +3253,9 @@ function animate() {
   maybeCrystalVisit(now)
   maybeLevelUp(now)
   maybeDialog(now)
+  maybeSendToTent(now)
+  maybeReleaseFromTent(now)
+  maybeClassChange(now)
   if (nextChapterAt === 0) nextChapterAt = now + 30000
   if (now >= nextChapterAt) {
     showChapter()
