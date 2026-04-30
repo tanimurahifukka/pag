@@ -273,6 +273,19 @@ class FloatingNumber {
 
 const floatingNumbers: FloatingNumber[] = []
 
+const ITEM_DROPS = [
+  { name: 'Potion',       color: '#a0d8ff' },
+  { name: 'Hi-Potion',    color: '#80c0ff' },
+  { name: 'Ether',        color: '#c080ff' },
+  { name: 'Phoenix Down', color: '#ffa040' },
+  { name: 'Elixir',       color: '#80ff80' },
+  { name: 'Soft',         color: '#ffe0a0' },
+  { name: 'Antidote',     color: '#80ffd0' },
+  { name: 'Hi-Ether',     color: '#a060ff' },
+  { name: 'X-Potion',     color: '#40e0ff' },
+  { name: 'Megalixir',    color: '#ffe860' },
+]
+
 function emitDamageNumber(x: number, y: number, z: number, value: number, critical: boolean, spellName?: string) {
   if (spellName) {
     floatingNumbers.push(new FloatingNumber(scene, x, y + 0.3, z, spellName, '#a060ff', true))
@@ -742,7 +755,17 @@ class Agent {
         const dist2 = dx * dx + dz * dz
         if (dist2 < 1.0 * 1.0 && activeChest.claim()) {
           emitGoldBurst(activeChest.position.x, 0.6, activeChest.position.z)
-          pushLog(`${this.name} claims treasure (${activeChest.claims}/3)`, 'spawn')
+          const item = ITEM_DROPS[Math.floor(Math.random() * ITEM_DROPS.length)]
+          floatingNumbers.push(new FloatingNumber(
+            scene,
+            activeChest.position.x,
+            0.9,
+            activeChest.position.z,
+            item.name + '!',
+            item.color,
+            true,
+          ))
+          pushLog(`${this.name} got ${item.name}! (${activeChest.claims}/3)`, 'spawn')
           this.target.set((Math.random() - 0.5) * 6, 1, (Math.random() - 0.5) * 6)
           this.state = 'walking'
           this.walkFrameTime = 0
@@ -1263,6 +1286,7 @@ let nextSlimeAt = 0
 
 function spawnBoss() {
   if (activeBoss) return
+  showEncounterFlash()
   activeBoss = new Boss(scene, new THREE.Vector3(DUNGEON_ENTRY.x, 1.5, DUNGEON_ENTRY.z))
   pushLog('⚔ BOSS appeared!', 'attack')
   showBossIntro()
@@ -1270,6 +1294,7 @@ function spawnBoss() {
 
 function spawnSlime() {
   if (activeSlime) return
+  showEncounterFlash()
   const x = (Math.random() - 0.5) * 5
   const z = (Math.random() - 0.5) * 5
   activeSlime = new Slime(scene, new THREE.Vector3(x, 0.5, z))
@@ -1834,6 +1859,19 @@ const bossIntroEl = (() => {
   return el
 })()
 
+const encounterEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-encounter'
+  el.innerHTML = `<div class="pag-encounter-text">ENCOUNTER!</div>`
+  document.body.appendChild(el)
+  return el
+})()
+
+function showEncounterFlash() {
+  encounterEl.classList.add('show')
+  setTimeout(() => encounterEl.classList.remove('show'), 600)
+}
+
 function showBossIntro() {
   bossIntroEl.classList.add('show')
   window.setTimeout(() => bossIntroEl.classList.remove('show'), 2000)
@@ -1857,6 +1895,47 @@ let nextDungeonAt = 0
 let nextDramaAt = 0
 let nextNpcAt = 0
 let nextCrystalVisitAt = 0
+let nextLevelUpAt = 0
+
+function maybeLevelUp(now: number) {
+  if (nextLevelUpAt === 0) nextLevelUpAt = now + 80000
+  if (now < nextLevelUpAt) return
+  nextLevelUpAt = now + 80000 + Math.random() * 80000
+  const candidates = Agent.all.filter((a) =>
+    !inDungeon.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping
+  )
+  if (candidates.length === 0) return
+  const a = candidates[Math.floor(Math.random() * candidates.length)]
+  triggerLevelUp(a)
+}
+
+function triggerLevelUp(a: Agent) {
+  pushLog(`★ ${a.name} LEVEL UP!`, 'spawn')
+  for (let i = 0; i < 16; i++) {
+    const angle = (i / 16) * Math.PI * 2
+    const r = 0.3 + Math.random() * 0.4
+    emitParticle(
+      'star',
+      a.sprite.position.x + Math.cos(angle) * r,
+      a.sprite.position.y + 0.3,
+      a.sprite.position.z + Math.sin(angle) * r,
+    )
+  }
+  floatingNumbers.push(new FloatingNumber(
+    scene,
+    a.sprite.position.x,
+    a.sprite.position.y + 1.0,
+    a.sprite.position.z,
+    'LEVEL UP!',
+    '#ffd870',
+    true,
+  ))
+  a.showTool('LV+1', 2500)
+}
 
 function maybeCrystalVisit(now: number) {
   if (nextCrystalVisitAt === 0) nextCrystalVisitAt = now + 25000
@@ -2793,6 +2872,7 @@ function animate() {
     emitParticle('firefly', -3.5 + (Math.random() - 0.5) * 0.4, 0.8 + Math.random() * 0.3, (Math.random() - 0.5) * 0.4)
   }
   maybeCrystalVisit(now)
+  maybeLevelUp(now)
   if (nextWeatherCheckAt === 0) nextWeatherCheckAt = now + 60000
   if (now >= nextWeatherCheckAt) {
     if (currentWeather === 'clear' && Math.random() < 0.4) {
