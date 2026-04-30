@@ -15,7 +15,7 @@ interface PagApi {
   list(): string[]
 }
 
-type ParticleKind = 'ember' | 'dust' | 'heart' | 'smoke'
+type ParticleKind = 'ember' | 'dust' | 'heart' | 'smoke' | 'spell' | 'arrow'
 
 declare global {
   interface Window {
@@ -36,12 +36,15 @@ class Particle {
       kind === 'ember' ? 0xff8c3a :
       kind === 'dust' ? 0xc8b8a0 :
       kind === 'heart' ? 0xff7aa8 :
-      0xa8a8a8
+      kind === 'smoke' ? 0xa8a8a8 :
+      kind === 'spell' ? 0xa060ff :
+      0xffd870
     const scale =
       kind === 'ember' ? 0.08 :
       kind === 'dust' ? 0.12 :
       kind === 'heart' ? 0.14 :
-      0.18
+      kind === 'smoke' ? 0.18 :
+      0.10
     const mat = new THREE.SpriteMaterial({
       color,
       transparent: true,
@@ -85,6 +88,22 @@ class Particle {
         0.6 + Math.random() * 0.3,
         (Math.random() - 0.5) * 0.15,
       )
+    } else if (this.kind === 'spell') {
+      this.maxLife = 700 + Math.random() * 400
+      const angle = Math.random() * Math.PI * 2
+      this.velocity.set(
+        Math.cos(angle) * 0.5,
+        0.8 + Math.random() * 0.4,
+        Math.sin(angle) * 0.5,
+      )
+    } else if (this.kind === 'arrow') {
+      this.maxLife = 400 + Math.random() * 200
+      const dirX = Math.random() < 0.5 ? -1 : 1
+      this.velocity.set(
+        dirX * (1.5 + Math.random()),
+        (Math.random() - 0.3) * 0.5,
+        (Math.random() - 0.5) * 0.6,
+      )
     }
     this.sprite.visible = true
     const mat = this.sprite.material as THREE.SpriteMaterial
@@ -125,6 +144,13 @@ class Particle {
       const baseScale = 0.14
       this.sprite.scale.set(baseScale * pulse, baseScale * pulse, 1)
       mat.color.setRGB(1.0, 0.45 + Math.sin(this.lifetime / 200) * 0.1, 0.65)
+    } else if (this.kind === 'spell') {
+      const t = this.lifetime / this.maxLife
+      mat.opacity = 1 - t
+      mat.color.setRGB(0.6 + t * 0.4, 0.3 * (1 - t) + 0.5 * t, 1 - t * 0.4)
+    } else if (this.kind === 'arrow') {
+      const t = this.lifetime / this.maxLife
+      mat.opacity = 1 - t
     }
 
     return true
@@ -472,7 +498,17 @@ class Agent {
           const dist2 = dx * dx + dz * dz
           if (dist2 < 1.7 * 1.7) {
             activeBoss.damage(1)
-            emitParticle('ember', activeBoss.sprite.position.x, activeBoss.sprite.position.y, activeBoss.sprite.position.z)
+            const cls = this.name.includes('mage') ? 'mage' : this.name.includes('archer') ? 'archer' : 'normal'
+            const bx = activeBoss.sprite.position.x
+            const by = activeBoss.sprite.position.y
+            const bz = activeBoss.sprite.position.z
+            if (cls === 'mage') {
+              for (let i = 0; i < 6; i++) emitParticle('spell', bx, by + 0.3, bz)
+            } else if (cls === 'archer') {
+              for (let i = 0; i < 4; i++) emitParticle('arrow', bx, by, bz)
+            } else {
+              emitParticle('ember', bx, by, bz)
+            }
           }
         }
         if (this.slashFrame >= Agent.SLASH_FRAME_COUNT) {
@@ -518,7 +554,13 @@ class Agent {
           return
         }
       }
-      if (activeBoss && activeBoss.state === 'alive' && !inDungeon.has(this.name) && !this.name.startsWith('task-')) {
+      if (
+        activeBoss &&
+        activeBoss.state === 'alive' &&
+        !inDungeon.has(this.name) &&
+        !this.name.startsWith('task-') &&
+        !this.name.startsWith('npc-')
+      ) {
         const dx = activeBoss.sprite.position.x - this.sprite.position.x
         const dz = activeBoss.sprite.position.z - this.sprite.position.z
         const dist2 = dx * dx + dz * dz
@@ -564,6 +606,12 @@ class Agent {
     const dist = Math.sqrt(dx * dx + dz * dz)
 
     if (dist < Agent.ARRIVAL_THRESHOLD) {
+      if (this.name.startsWith('npc-')) {
+        pushLog(`NPC ${this.name.split('-')[1]} left`, 'remove')
+        npcAgents.delete(this.name)
+        window.pag.dispatch({ type: 'remove', agentId: this.name })
+        return
+      }
       this.state = 'idle'
       this.idleEndTime = now + Agent.IDLE_MIN + Math.random() * (Agent.IDLE_MAX - Agent.IDLE_MIN)
       this.currentLandmark = this.targetLandmark
@@ -1020,12 +1068,15 @@ function emitParticle(kind: ParticleKind, x: number, y: number, z: number) {
       kind === 'ember' ? 0xff8c3a :
       kind === 'dust' ? 0xc8b8a0 :
       kind === 'heart' ? 0xff7aa8 :
-      0xa8a8a8
+      kind === 'smoke' ? 0xa8a8a8 :
+      kind === 'spell' ? 0xa060ff :
+      0xffd870
     const scale =
       kind === 'ember' ? 0.08 :
       kind === 'dust' ? 0.12 :
       kind === 'heart' ? 0.14 :
-      0.18
+      kind === 'smoke' ? 0.18 :
+      0.10
     mat.color.set(color)
     p.sprite.scale.set(scale, scale, 1)
     p.kind = kind
@@ -1233,6 +1284,13 @@ const PARTY_ARCHETYPE_PNG: Record<PartyRole, { walk: string; slash: string }> = 
   },
   mage: { walk: '/assets/sprites/legacy/char_mage_walk.png', slash: '/assets/sprites/legacy/char_mage_slash.png' },
 }
+const NPC_SPRITES: { walk: string; slash: string; label: string }[] = [
+  { walk: '/assets/sprites/legacy/char_peasant_walk.png', slash: '/assets/sprites/legacy/char_peasant_slash.png', label: 'peasant' },
+  { walk: '/assets/sprites/legacy/char_healer_walk.png', slash: '/assets/sprites/legacy/char_healer_slash.png', label: 'healer' },
+  { walk: '/assets/sprites/legacy/char_archer_walk.png', slash: '/assets/sprites/legacy/char_archer_slash.png', label: 'archer' },
+  { walk: '/assets/sprites/legacy/char_rogue_walk.png', slash: '/assets/sprites/legacy/char_rogue_slash.png', label: 'rogue' },
+]
+type NpcSide = 'north' | 'south' | 'east' | 'west'
 
 interface Party {
   sessionId: string
@@ -1244,6 +1302,8 @@ interface Party {
 
 const parties = new Map<string, Party>()
 const MAX_PARTIES = 3
+let npcCounter = 0
+const npcAgents = new Set<string>()
 const LOG_MAX = 10
 const logEl = (() => {
   const el = document.createElement('div')
@@ -1282,6 +1342,7 @@ function pushLog(message: string, tag?: string) {
 const inDungeon = new Set<string>()
 let nextDungeonAt = 0
 let nextDramaAt = 0
+let nextNpcAt = 0
 
 function pickRandom<T>(arr: T[], n: number): T[] {
   const copy = arr.slice()
@@ -1292,11 +1353,53 @@ function pickRandom<T>(arr: T[], n: number): T[] {
   return copy.slice(0, n)
 }
 
+function spawnNpcVisitor() {
+  const spec = NPC_SPRITES[Math.floor(Math.random() * NPC_SPRITES.length)]
+  npcCounter += 1
+  const name = `npc-${spec.label}-${npcCounter}`
+  const sides: NpcSide[] = ['north', 'south', 'east', 'west']
+  const entrySide = sides[Math.floor(Math.random() * 4)]
+  const exitSide = sides.find((s) => s !== entrySide && s !== sideOpposite(entrySide)) || sideOpposite(entrySide)
+  const entryPos = sideToEdge(entrySide, true)
+  const exitPos = sideToEdge(exitSide, false)
+  const tint = new THREE.Color()
+  tint.setHSL(Math.random(), 0.4, 0.7)
+  tint.r = 0.7 + tint.r * 0.5
+  tint.g = 0.7 + tint.g * 0.5
+  tint.b = 0.7 + tint.b * 0.5
+
+  const npc = new Agent(scene, spec.walk, entryPos, name, {
+    tint,
+    sword: {
+      bg: '/assets/sprites/weapon/sword_arming_walk_bg.png',
+      fg: '/assets/sprites/weapon/sword_arming_walk_fg.png',
+    },
+    slashUrl: spec.slash,
+  })
+  agents.push(npc)
+  npcAgents.add(name)
+  pushLog(`NPC ${spec.label} entered`, 'idle')
+  npc.goto(exitPos)
+}
+
+function sideOpposite(s: NpcSide): NpcSide {
+  return s === 'north' ? 'south' : s === 'south' ? 'north' : s === 'east' ? 'west' : 'east'
+}
+
+function sideToEdge(side: NpcSide, entry: boolean): THREE.Vector3 {
+  const offset = entry ? 4.2 : 3.8
+  if (side === 'north') return new THREE.Vector3((Math.random() - 0.5) * 6, 1, -offset)
+  if (side === 'south') return new THREE.Vector3((Math.random() - 0.5) * 6, 1, offset)
+  if (side === 'east') return new THREE.Vector3(offset, 1, (Math.random() - 0.5) * 6)
+  return new THREE.Vector3(-offset, 1, (Math.random() - 0.5) * 6)
+}
+
 function startDungeonRun() {
   // task subagent と party member は除外、default 10 体だけ対象
   const candidates = agents.filter((a) => {
     if (inDungeon.has(a.name)) return false
     if (a.name.startsWith('task-')) return false
+    if (a.name.startsWith('npc-')) return false
     // party member (sid8-role) も除外
     const partyish = /^[a-z0-9]{6,}-(main|archer|healer|mage)$/.test(a.name)
     return !partyish
@@ -1331,6 +1434,7 @@ function startDungeonRun() {
       for (const a of agents) {
         if (inDungeon.has(a.name)) continue
         if (a.name.startsWith('task-')) continue
+        if (a.name.startsWith('npc-')) continue
         const target = new THREE.Vector3(
           DUNGEON_ENTRY.x + (Math.random() - 0.5) * 1.6,
           1,
@@ -1338,7 +1442,14 @@ function startDungeonRun() {
         )
         if (a.state === 'attacking') {
           window.setTimeout(() => {
-            if (activeBoss && !inDungeon.has(a.name) && !a.name.startsWith('task-')) a.goto(target)
+            if (
+              activeBoss &&
+              !inDungeon.has(a.name) &&
+              !a.name.startsWith('task-') &&
+              !a.name.startsWith('npc-')
+            ) {
+              a.goto(target)
+            }
           }, 500)
         } else {
           a.goto(target)
@@ -1353,6 +1464,7 @@ function pickIdleNonDungeon(): Agent[] {
     if (inDungeon.has(a.name)) return false
     if (a.state !== 'idle') return false
     if (a.name.startsWith('task-')) return false
+    if (a.name.startsWith('npc-')) return false
     return true
   })
 }
@@ -1881,6 +1993,11 @@ function animate() {
   if (now >= nextDungeonAt) {
     startDungeonRun()
     nextDungeonAt = now + 30000 + Math.random() * 15000
+  }
+  if (nextNpcAt === 0) nextNpcAt = now + 15000
+  if (now >= nextNpcAt) {
+    spawnNpcVisitor()
+    nextNpcAt = now + 45000 + Math.random() * 45000
   }
   if (nextDramaAt === 0) nextDramaAt = now + 5000
   if (inDungeon.size > 0 && now >= nextDramaAt) {
