@@ -239,6 +239,22 @@ body { margin:0; overflow:hidden; }
   transform: scale(1.0);
 }
 
+#pag-treasure-room-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 11;
+  opacity: 0;
+  background: radial-gradient(circle at center,
+    rgba(255, 220, 100, 0.5) 0%,
+    rgba(255, 220, 100, 0.15) 50%,
+    rgba(255, 220, 100, 0) 100%);
+  transition: opacity 0.4s;
+}
+#pag-treasure-room-flash.show {
+  opacity: 1;
+}
+
 #pag-chapter {
   position: fixed;
   top: 25%;

@@ -775,7 +775,7 @@ class Agent {
     this.landmarkActionsLeft = 0
   }
 
-  private setFrame(frame: number, dir: 0 | 1 | 2 | 3) {
+  setFrame(frame: number, dir: 0 | 1 | 2 | 3) {
     const ox = frame / 9
     const oy = (3 - dir) / 4
     this.bodyTex.offset.x = ox
@@ -888,6 +888,8 @@ class Agent {
             const isArcher = this.name.includes('archer')
             let damage = critical ? 2 : 1
             if (this.limitBreakActive) damage *= 5
+            if (critical) shakeCamera(0.3)
+            if (this.limitBreakActive) shakeCamera(0.6)
             this.applyHitLimitGain()
             activeBoss.damage(damage)
             registerHit(now, activeBoss.sprite.position.x, activeBoss.sprite.position.y, activeBoss.sprite.position.z)
@@ -923,6 +925,8 @@ class Agent {
             const critical = Math.random() < 0.15
             let damage = critical ? 2 : 1
             if (this.limitBreakActive) damage *= 5
+            if (critical) shakeCamera(0.3)
+            if (this.limitBreakActive) shakeCamera(0.6)
             this.applyHitLimitGain()
             activeSlime.damage(damage)
             registerHit(now, activeSlime.position.x, activeSlime.sprite.position.y, activeSlime.position.z)
@@ -1070,6 +1074,31 @@ class Agent {
           this.currentLandmark = null
           this.updateLabel(`→ (${this.target.x.toFixed(1)}, ${this.target.z.toFixed(1)})`)
           return
+        }
+      }
+      if (!inDungeon.has(this.name) && !this.name.startsWith('task-')) {
+        for (const c of treasureRoomChests) {
+          if (c.state === 'fading') continue
+          const dx = c.position.x - this.sprite.position.x
+          const dz = c.position.z - this.sprite.position.z
+          const dist2 = dx * dx + dz * dz
+          if (dist2 < 1.0 * 1.0) {
+            c.claim()
+            emitGoldBurst(c.position.x, 0.6, c.position.z)
+            const item = ITEM_DROPS[Math.floor(Math.random() * ITEM_DROPS.length)]
+            floatingNumbers.push(new FloatingNumber(scene, c.position.x, 0.9, c.position.z, item.name + '!', item.color, true))
+            pushLog(`${this.name} got ${item.name}!`, 'spawn')
+            stats.treasures += 1
+            refreshStats()
+            this.target.set((Math.random() - 0.5) * 6, 1, (Math.random() - 0.5) * 6)
+            this.state = 'walking'
+            this.walkFrameTime = 0
+            this.walkFrame = 1
+            this.targetLandmark = null
+            this.currentLandmark = null
+            this.updateLabel(`→ (${this.target.x.toFixed(1)}, ${this.target.z.toFixed(1)})`)
+            return
+          }
         }
       }
       if (
@@ -1425,10 +1454,12 @@ class Summon {
       this.damageDealt = true
       if (activeBoss && activeBoss.state === 'alive') {
         activeBoss.damage(5)
+        shakeCamera(0.4)
         floatingNumbers.push(new FloatingNumber(scene, this.target.x, this.target.y + 1.2, this.target.z, 'SUMMON', '#80c0ff', true))
         floatingNumbers.push(new FloatingNumber(scene, this.target.x, this.target.y + 0.6, this.target.z, '5', '#ffd870', true))
       } else if (activeSlime && activeSlime.state === 'alive') {
         activeSlime.damage(5)
+        shakeCamera(0.4)
       }
       for (let i = 0; i < 30; i++) {
         emitParticle(
@@ -1576,6 +1607,12 @@ const aspect = innerWidth / innerHeight
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x1a1a1a)
+let cameraShakeAmount = 0
+const cameraOrigPos = new THREE.Vector3(5, 5, 5)
+
+function shakeCamera(amount: number) {
+  cameraShakeAmount = Math.max(cameraShakeAmount, amount)
+}
 
 const magicSigils = new Set<() => void>()
 
@@ -1662,6 +1699,24 @@ let smokeSpawnTime = 0
 let nextSlimeAt = 0
 const minionSlimes: Slime[] = []
 let nextMinionAt = 0
+let nextTreasureRoomAt = 0
+const treasureRoomChests: Chest[] = []
+let treasureRoomFlashAt = 0
+
+function startTreasureRoom() {
+  if (activeChest || treasureRoomChests.length > 0) return
+  pushLog('☆ TREASURE ROOM!', 'spawn')
+  treasureRoomFlashAt = performance.now() + 800
+  const positions = [
+    new THREE.Vector3(-2, 0, 0.5),
+    new THREE.Vector3(0, 0, 0.5),
+    new THREE.Vector3(2, 0, 0.5),
+  ]
+  for (const p of positions) {
+    const c = new Chest(scene, p)
+    treasureRoomChests.push(c)
+  }
+}
 
 function trySummon(target: THREE.Vector3) {
   if (activeSummon) return
@@ -2305,6 +2360,13 @@ const phase2El = (() => {
   return el
 })()
 
+const treasureRoomFlashEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-treasure-room-flash'
+  document.body.appendChild(el)
+  return el
+})()
+
 const encounterEl = (() => {
   const el = document.createElement('div')
   el.id = 'pag-encounter'
@@ -2338,6 +2400,7 @@ function showBossIntro() {
 function showPhase2Banner() {
   phase2El.classList.add('show')
   window.setTimeout(() => phase2El.classList.remove('show'), 1800)
+  shakeCamera(0.5)
   pushLog('⚠ BOSS PHASE 2!', 'attack')
 }
 
@@ -2386,6 +2449,32 @@ let nextLevelUpAt = 0
 let nextTentSendAt = 0
 let nextClassChangeAt = 0
 let nextHealAt = 0
+let nextFestivalAt = 0
+let festivalEndAt = 0
+let festivalAgents: Agent[] = []
+
+function startFestival() {
+  pushLog('🎉 FESTIVAL!', 'spawn')
+  festivalEndAt = performance.now() + 12000
+  const candidates = Agent.all.filter((a) =>
+    !inDungeon.has(a.name) &&
+    !inTent.has(a.name) &&
+    !a.name.startsWith('task-') &&
+    !a.name.startsWith('npc-') &&
+    a.state === 'idle' &&
+    !a.isSleeping
+  )
+  festivalAgents = candidates.slice(0, 6)
+  festivalAgents.forEach((a, i) => {
+    const angle = (i / Math.max(1, festivalAgents.length)) * Math.PI * 2
+    const r = 1.6
+    a.goto(new THREE.Vector3(-3 + Math.cos(angle) * r, 1, -2 + Math.sin(angle) * r))
+  })
+}
+
+function endFestival() {
+  festivalAgents = []
+}
 
 function maybeHeal(now: number) {
   if (nextHealAt === 0) nextHealAt = now + 12000
@@ -3592,6 +3681,55 @@ function animate() {
       activeChest = null
     }
   }
+  if (nextTreasureRoomAt === 0) nextTreasureRoomAt = now + 240000
+  if (now >= nextTreasureRoomAt) {
+    if (
+      !activeChest &&
+      !activeBoss &&
+      currentWeather === 'clear' &&
+      inDungeon.size === 0 &&
+      treasureRoomChests.length === 0
+    ) {
+      startTreasureRoom()
+    }
+    nextTreasureRoomAt = now + 480000 + Math.random() * 420000
+  }
+  for (let i = treasureRoomChests.length - 1; i >= 0; i--) {
+    const c = treasureRoomChests[i]
+    c.update(now)
+    if (c.isDead()) {
+      c.dispose(scene)
+      treasureRoomChests.splice(i, 1)
+    }
+  }
+  if (now < treasureRoomFlashAt) {
+    treasureRoomFlashEl.classList.add('show')
+  } else {
+    treasureRoomFlashEl.classList.remove('show')
+  }
+  if (nextFestivalAt === 0) nextFestivalAt = now + 180000
+  if (now >= nextFestivalAt) {
+    startFestival()
+    nextFestivalAt = now + 300000 + Math.random() * 300000
+  }
+  if (festivalAgents.length > 0) {
+    if (now >= festivalEndAt) {
+      endFestival()
+    } else {
+      for (const a of festivalAgents) {
+        if (a.state === 'idle' && !a.isSleeping && Math.random() < 0.05) {
+          a.direction = Math.floor(Math.random() * 4) as 0 | 1 | 2 | 3
+          a.setFrame(a.walkFrame, a.direction)
+          a.walkFrame = (a.walkFrame + 1) % 9
+        }
+      }
+      if (Math.random() < 0.6) {
+        for (let i = 0; i < 3; i++) {
+          emitParticle('butterfly', -3 + (Math.random() - 0.5) * 3, 3.5, -2 + (Math.random() - 0.5) * 3)
+        }
+      }
+    }
+  }
   for (const p of pets) p.update(now, dtMs)
   emberSpawnTime += dtMs
   while (emberSpawnTime >= 50) {
@@ -3727,6 +3865,18 @@ function animate() {
   }
   tickQuest(now)
   fireLight.intensity = 8 + Math.random() * 2
+  if (cameraShakeAmount > 0.01) {
+    const dx = (Math.random() - 0.5) * cameraShakeAmount
+    const dy = (Math.random() - 0.5) * cameraShakeAmount
+    const dz = (Math.random() - 0.5) * cameraShakeAmount
+    camera.position.set(cameraOrigPos.x + dx, cameraOrigPos.y + dy, cameraOrigPos.z + dz)
+    camera.lookAt(0, 0, 0)
+    cameraShakeAmount *= 0.85
+  } else if (cameraShakeAmount > 0) {
+    camera.position.copy(cameraOrigPos)
+    camera.lookAt(0, 0, 0)
+    cameraShakeAmount = 0
+  }
   renderer.render(scene, camera)
 }
 
