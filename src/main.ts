@@ -1112,6 +1112,69 @@ questBoard.add(questBoardPost)
 questBoard.position.set(3, 0, 3)
 scene.add(questBoard)
 
+const questPostCanvas = document.createElement('canvas')
+questPostCanvas.width = 256
+questPostCanvas.height = 192
+const questPostTex = new THREE.CanvasTexture(questPostCanvas)
+questPostTex.colorSpace = THREE.SRGBColorSpace
+questPostTex.minFilter = THREE.LinearFilter
+questPostTex.magFilter = THREE.LinearFilter
+const questPostMat = new THREE.SpriteMaterial({ map: questPostTex, transparent: true, depthTest: false })
+const questPostSprite = new THREE.Sprite(questPostMat)
+questPostSprite.scale.set(1.4, 1.05, 1)
+questPostSprite.position.set(3, 1.4, 3.06)
+questPostSprite.visible = false
+scene.add(questPostSprite)
+
+function drawQuestPost(text: string | null) {
+  const ctx = questPostCanvas.getContext('2d')
+  if (!ctx) return
+  const w = questPostCanvas.width
+  const h = questPostCanvas.height
+  ctx.clearRect(0, 0, w, h)
+  if (!text) {
+    questPostSprite.visible = false
+    questPostTex.needsUpdate = true
+    return
+  }
+  ctx.fillStyle = '#f4e8c8'
+  ctx.fillRect(8, 8, w - 16, h - 16)
+  ctx.strokeStyle = '#3a2e20'
+  ctx.lineWidth = 3
+  ctx.strokeRect(8, 8, w - 16, h - 16)
+  ctx.fillStyle = '#2a1a10'
+  ctx.font = 'bold 22px serif'
+  ctx.textAlign = 'center'
+  ctx.fillText('QUEST', w / 2, 36)
+  ctx.font = '18px serif'
+  ctx.textBaseline = 'top'
+  const lines = wrapText(ctx, text, w - 40, 18)
+  let y = 60
+  for (const line of lines) {
+    ctx.fillText(line, w / 2, y)
+    y += 22
+  }
+  questPostSprite.visible = true
+  questPostTex.needsUpdate = true
+}
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, _lineHeight: number): string[] {
+  const words = text.split(' ')
+  const lines: string[] = []
+  let current = ''
+  for (const w of words) {
+    const test = current ? current + ' ' + w : w
+    if (ctx.measureText(test).width > maxWidth && current) {
+      lines.push(current)
+      current = w
+    } else {
+      current = test
+    }
+  }
+  if (current) lines.push(current)
+  return lines.slice(0, 5)
+}
+
 const workbench = new THREE.Group()
 const workbenchTop = new THREE.Mesh(
   new THREE.BoxGeometry(1.2, 0.15, 0.6),
@@ -1343,6 +1406,140 @@ const inDungeon = new Set<string>()
 let nextDungeonAt = 0
 let nextDramaAt = 0
 let nextNpcAt = 0
+
+const QUEST_TITLES = [
+  'Slay the dungeon skeleton',
+  'Recover the lost relic',
+  'Investigate strange noises below',
+  'Escort the merchant safely',
+  'Retrieve the ancient tome',
+  'Find the missing apprentice',
+  'Defeat the cave dweller',
+  'Map the lower halls',
+  'Banish the wandering shade',
+  'Bring back enchanted herbs',
+]
+
+type QuestPhase = 'idle' | 'posted' | 'reading' | 'gathering' | 'in-dungeon' | 'completing'
+let questPhase: QuestPhase = 'idle'
+let questTitle: string | null = null
+let questNextAt = 0
+let questReader: Agent | null = null
+let questTeam: Agent[] = []
+let questPhaseTimer = 0
+
+function isQuestEligible(a: Agent) {
+  if (inDungeon.has(a.name)) return false
+  if (a.name.startsWith('task-')) return false
+  if (a.name.startsWith('npc-')) return false
+  if (/^[a-z0-9]{6,}-(main|archer|healer|mage)$/.test(a.name)) return false
+  return a.state !== 'attacking'
+}
+
+function eligibleQuestTaker(): Agent | null {
+  const candidates = Agent.all.filter(isQuestEligible)
+  if (candidates.length === 0) return null
+  const idleCandidates = candidates.filter((a) => a.state === 'idle')
+  const pool = idleCandidates.length > 0 ? idleCandidates : candidates
+  const board = Agent.landmarks.find((l) => l.name === 'quest-board')?.position ?? new THREE.Vector3(3, 1, 2)
+  return pool.reduce((closest, a) => (
+    a.sprite.position.distanceToSquared(board) < closest.sprite.position.distanceToSquared(board) ? a : closest
+  ))
+}
+
+function postQuest() {
+  if (questPhase !== 'idle') return
+  questTitle = QUEST_TITLES[Math.floor(Math.random() * QUEST_TITLES.length)]
+  drawQuestPost(questTitle)
+  questPhase = 'posted'
+  questPhaseTimer = performance.now() + 1500
+  pushLog(`📜 new quest: ${questTitle}`, 'board')
+}
+
+function tickQuest(now: number) {
+  if (questPhase === 'idle') {
+    if (questNextAt === 0) questNextAt = now + 12000
+    if (now >= questNextAt) {
+      postQuest()
+      questNextAt = now + 35000 + Math.random() * 20000
+    }
+    return
+  }
+
+  if (questPhase === 'posted' && now >= questPhaseTimer) {
+    questReader = eligibleQuestTaker()
+    if (!questReader) {
+      drawQuestPost(null)
+      questPhase = 'idle'
+      questTitle = null
+      return
+    }
+    inDungeon.add(questReader.name)
+    questReader.goto(new THREE.Vector3(3, 1, 2))
+    questPhase = 'reading'
+    questPhaseTimer = now + 4500
+    pushLog(`${questReader.name} takes quest: ${questTitle}`, 'board')
+    return
+  }
+
+  if (questPhase === 'reading' && now >= questPhaseTimer) {
+    questTeam = []
+    if (questReader) questTeam.push(questReader)
+    const more = Agent.all.filter((a) => {
+      if (a === questReader) return false
+      return isQuestEligible(a)
+    })
+    for (let i = more.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[more[i], more[j]] = [more[j], more[i]]
+    }
+    questTeam.push(...more.slice(0, 2))
+    for (const a of questTeam) {
+      inDungeon.add(a.name)
+      a.goto(new THREE.Vector3(-3, 1, -2))
+    }
+    questPhase = 'gathering'
+    questPhaseTimer = now + 5500
+    pushLog('team forms at fireplace', 'fire')
+    return
+  }
+
+  if (questPhase === 'gathering' && now >= questPhaseTimer) {
+    for (const a of questTeam) {
+      inDungeon.add(a.name)
+      a.goto(new THREE.Vector3(-1.5, 1, 0.6))
+    }
+    questPhase = 'in-dungeon'
+    questPhaseTimer = now + 6000
+    pushLog('team enters dungeon (quest)', 'spawn')
+    return
+  }
+
+  if (questPhase === 'in-dungeon' && now >= questPhaseTimer) {
+    for (const a of questTeam) a.sprite.visible = false
+    questPhaseTimer = now + 25000
+    questPhase = 'completing'
+    return
+  }
+
+  if (questPhase === 'completing' && now >= questPhaseTimer) {
+    for (const a of questTeam) {
+      a.sprite.visible = true
+      a.sprite.position.set(-1.5 + (Math.random() - 0.5) * 0.6, 1, 0.6 + Math.random() * 0.3)
+      inDungeon.delete(a.name)
+      a.pickNewTarget()
+    }
+    for (let i = 0; i < 12; i++) {
+      emitParticle('ember', 3 + (Math.random() - 0.5) * 0.8, 1.5, 3 + (Math.random() - 0.5) * 0.4)
+    }
+    drawQuestPost(null)
+    pushLog(`✓ quest complete: ${questTitle}`, 'spawn')
+    questPhase = 'idle'
+    questTitle = null
+    questReader = null
+    questTeam = []
+  }
+}
 
 function pickRandom<T>(arr: T[], n: number): T[] {
   const copy = arr.slice()
@@ -2004,6 +2201,7 @@ function animate() {
     runDrama()
     nextDramaAt = now + 8000 + Math.random() * 7000
   }
+  tickQuest(now)
   fireLight.intensity = 8 + Math.random() * 2
   renderer.render(scene, camera)
 }
