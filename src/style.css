@@ -95,3 +95,41 @@ body { margin:0; overflow:hidden; }
 #pag-log .pag-log-tag-spawn  { color: #8aff8a; }
 #pag-log .pag-log-tag-remove { color: #ff7a7a; }
 #pag-log .pag-log-tag-idle   { color: #b8b0a0; }
+
+#pag-victory {
+  position: fixed;
+  top: 30%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(180deg, rgba(20,30,50,0.95), rgba(10,15,30,0.95));
+  border: 3px solid #ffd870;
+  border-radius: 8px;
+  padding: 20px 36px;
+  color: #fff8e8;
+  font-family: serif;
+  font-size: 18px;
+  text-align: center;
+  box-shadow: 0 0 24px rgba(255,216,112,0.5);
+  z-index: 12;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+#pag-victory.show {
+  opacity: 1;
+}
+#pag-victory .pag-victory-title {
+  font-size: 28px;
+  color: #ffd870;
+  text-shadow: 0 0 8px #ffaa30;
+  margin-bottom: 8px;
+  letter-spacing: 0.1em;
+}
+#pag-victory .pag-victory-row {
+  margin: 4px 0;
+  font-family: monospace;
+}
+#pag-victory .pag-victory-num {
+  color: #ffd870;
+  font-weight: bold;
+}

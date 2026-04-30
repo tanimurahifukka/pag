@@ -216,6 +216,75 @@ class Particle {
   }
 }
 
+class FloatingNumber {
+  sprite: THREE.Sprite
+  tex: THREE.CanvasTexture
+  canvas: HTMLCanvasElement
+  velocity: THREE.Vector3
+  lifetime = 0
+  maxLife = 1100
+
+  constructor(scene: THREE.Scene, x: number, y: number, z: number, text: string, color: string, big: boolean) {
+    this.canvas = document.createElement('canvas')
+    this.canvas.width = big ? 192 : 128
+    this.canvas.height = big ? 56 : 40
+    this.tex = new THREE.CanvasTexture(this.canvas)
+    this.tex.colorSpace = THREE.SRGBColorSpace
+    this.tex.minFilter = THREE.LinearFilter
+    this.tex.magFilter = THREE.LinearFilter
+    const ctx = this.canvas.getContext('2d')!
+    ctx.font = `bold ${big ? 36 : 28}px sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.lineWidth = big ? 4 : 3
+    ctx.strokeStyle = '#000000'
+    ctx.strokeText(text, this.canvas.width / 2, this.canvas.height / 2)
+    ctx.fillStyle = color
+    ctx.fillText(text, this.canvas.width / 2, this.canvas.height / 2)
+    this.tex.needsUpdate = true
+    const mat = new THREE.SpriteMaterial({ map: this.tex, transparent: true, depthTest: false })
+    this.sprite = new THREE.Sprite(mat)
+    this.sprite.scale.set(big ? 1.0 : 0.7, big ? 0.3 : 0.22, 1)
+    this.sprite.position.set(x, y, z)
+    this.sprite.renderOrder = 12
+    scene.add(this.sprite)
+    this.velocity = new THREE.Vector3((Math.random() - 0.5) * 0.4, 1.5, (Math.random() - 0.5) * 0.4)
+  }
+
+  update(dtMs: number): boolean {
+    this.lifetime += dtMs
+    if (this.lifetime >= this.maxLife) return false
+    const dt = dtMs / 1000
+    this.sprite.position.x += this.velocity.x * dt
+    this.sprite.position.y += this.velocity.y * dt
+    this.sprite.position.z += this.velocity.z * dt
+    this.velocity.y -= 1.0 * dt
+    const t = this.lifetime / this.maxLife
+    ;(this.sprite.material as THREE.SpriteMaterial).opacity = 1 - t * t
+    return true
+  }
+
+  dispose(scene: THREE.Scene) {
+    scene.remove(this.sprite)
+    this.tex.dispose()
+    ;(this.sprite.material as THREE.SpriteMaterial).dispose()
+  }
+}
+
+const floatingNumbers: FloatingNumber[] = []
+
+function emitDamageNumber(x: number, y: number, z: number, value: number, critical: boolean, spellName?: string) {
+  if (spellName) {
+    floatingNumbers.push(new FloatingNumber(scene, x, y + 0.3, z, spellName, '#a060ff', true))
+    floatingNumbers.push(new FloatingNumber(scene, x, y, z, String(value), '#ffd870', false))
+  } else if (critical) {
+    floatingNumbers.push(new FloatingNumber(scene, x, y + 0.3, z, 'CRITICAL!', '#ff5040', true))
+    floatingNumbers.push(new FloatingNumber(scene, x, y, z, String(value), '#ffffff', false))
+  } else {
+    floatingNumbers.push(new FloatingNumber(scene, x, y, z, String(value), '#ffffff', false))
+  }
+}
+
 class Agent {
   static WALK_SPEED = 1.5
   static IDLE_MIN = 800
@@ -556,18 +625,26 @@ class Agent {
           const dz = activeBoss.sprite.position.z - this.sprite.position.z
           const dist2 = dx * dx + dz * dz
           if (dist2 < 1.7 * 1.7) {
-            activeBoss.damage(1)
-            const cls = this.name.includes('mage') ? 'mage' : this.name.includes('archer') ? 'archer' : 'normal'
+            const critical = Math.random() < 0.15
+            const isMage = this.name.includes('mage')
+            const isArcher = this.name.includes('archer')
+            const baseDamage = critical ? 2 : 1
+            const damage = isMage ? baseDamage : baseDamage
+            activeBoss.damage(damage)
             const bx = activeBoss.sprite.position.x
-            const by = activeBoss.sprite.position.y
+            const by = activeBoss.sprite.position.y + 1.0
             const bz = activeBoss.sprite.position.z
-            if (cls === 'mage') {
-              for (let i = 0; i < 6; i++) emitParticle('spell', bx, by + 0.3, bz)
-            } else if (cls === 'archer') {
-              for (let i = 0; i < 4; i++) emitParticle('arrow', bx, by, bz)
+            let spellName: string | undefined
+            if (isMage) {
+              const SPELLS = ['FIRA', 'BLIZZARA', 'THUNDARA', 'HOLY', 'BIO']
+              spellName = SPELLS[Math.floor(Math.random() * SPELLS.length)]
+              for (let i = 0; i < 6; i++) emitParticle('spell', bx, by - 0.6, bz)
+            } else if (isArcher) {
+              for (let i = 0; i < 4; i++) emitParticle('arrow', bx, by - 0.5, bz)
             } else {
-              emitParticle('ember', bx, by, bz)
+              emitParticle('ember', bx, by - 0.5, bz)
             }
+            emitDamageNumber(bx, by, bz, damage, critical, spellName)
           }
         }
         if (this.slashFrame >= Agent.SLASH_FRAME_COUNT) {
@@ -1469,6 +1546,32 @@ function pushLog(message: string, tag?: string) {
   }
 }
 
+const victoryEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-victory'
+  el.innerHTML = `
+    <div class="pag-victory-title">★ VICTORY ★</div>
+    <div class="pag-victory-row">EXP: <span class="pag-victory-num" data-exp>0</span></div>
+    <div class="pag-victory-row">GIL: <span class="pag-victory-num" data-gil>0</span></div>
+    <div class="pag-victory-row" data-bonus></div>
+  `
+  document.body.appendChild(el)
+  return el
+})()
+
+function showVictoryPanel() {
+  const exp = 80 + Math.floor(Math.random() * 100)
+  const gil = 60 + Math.floor(Math.random() * 80)
+  const bonusOptions = ['no bonus', 'rare drop!', 'level up!', 'morale +1']
+  const bonus = bonusOptions[Math.floor(Math.random() * bonusOptions.length)]
+  victoryEl.querySelector<HTMLSpanElement>('[data-exp]')!.textContent = String(exp)
+  victoryEl.querySelector<HTMLSpanElement>('[data-gil]')!.textContent = String(gil)
+  victoryEl.querySelector<HTMLDivElement>('[data-bonus]')!.textContent = bonus
+  victoryEl.classList.add('show')
+  window.setTimeout(() => victoryEl.classList.remove('show'), 2800)
+  pushLog(`VICTORY! EXP+${exp} GIL+${gil}`, 'spawn')
+}
+
 const inDungeon = new Set<string>()
 let nextDungeonAt = 0
 let nextDramaAt = 0
@@ -1695,30 +1798,20 @@ function startDungeonRun() {
     pushLog('team returned from dungeon', 'spawn')
     if (Math.random() < 0.35 && !activeBoss) {
       spawnBoss()
-      for (const a of agents) {
-        if (inDungeon.has(a.name)) continue
-        if (a.name.startsWith('task-')) continue
-        if (a.name.startsWith('npc-')) continue
-        const target = new THREE.Vector3(
-          DUNGEON_ENTRY.x + (Math.random() - 0.5) * 1.6,
-          1,
-          DUNGEON_ENTRY.z + (Math.random() - 0.5) * 0.6,
-        )
-        if (a.state === 'attacking') {
-          window.setTimeout(() => {
-            if (
-              activeBoss &&
-              !inDungeon.has(a.name) &&
-              !a.name.startsWith('task-') &&
-              !a.name.startsWith('npc-')
-            ) {
-              a.goto(target)
-            }
-          }, 500)
-        } else {
-          a.goto(target)
-        }
-      }
+      // フォーメーション配置: ボス位置 (-1.5, 1, 0.6) から半径 2 の半円弧 (front-facing 側、Z+ 方向)
+      const bossX = -1.5
+      const bossZ = 0.6
+      const eligible = agents.filter((a) => !inDungeon.has(a.name) && !a.name.startsWith('task-') && !a.name.startsWith('npc-'))
+      const slotCount = Math.min(eligible.length, 8)
+      eligible.slice(0, slotCount).forEach((a, i) => {
+        // 角度は手前側 (theta in [PI/4, 3PI/4]、つまり Z+ 半円)
+        const theta = Math.PI / 4 + (Math.PI / 2) * (slotCount === 1 ? 0.5 : i / (slotCount - 1))
+        const radius = 2.0
+        const x = bossX + Math.cos(theta) * radius
+        const z = bossZ + Math.sin(theta) * radius
+        a.goto(new THREE.Vector3(x, 1, z))
+      })
+      pushLog('battle formation!', 'attack')
     }
   }, 5500 + stayDuration)
 }
@@ -2290,6 +2383,7 @@ function animate() {
   if (activeBoss && activeBoss.hp <= 0 && !bossDying) {
     bossDying = true
     pushLog('💀 boss defeated!', 'spawn')
+    showVictoryPanel()
     window.setTimeout(() => {
       if (activeBoss) {
         activeBoss.dispose(scene)
@@ -2374,6 +2468,12 @@ function animate() {
           emitParticle('heart', mx, my, mz)
         }
       }
+    }
+  }
+  for (let i = floatingNumbers.length - 1; i >= 0; i--) {
+    if (!floatingNumbers[i].update(dtMs)) {
+      floatingNumbers[i].dispose(scene)
+      floatingNumbers.splice(i, 1)
     }
   }
   updateParticles(dtMs)
