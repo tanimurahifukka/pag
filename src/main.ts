@@ -3264,6 +3264,7 @@ function tickQuest(now: number) {
     }
     drawQuestPost(null)
     pushLog(`✓ quest complete: ${questTitle}`, 'spawn')
+    if (questTitle) logCompletedQuest(questTitle)
     stats.quests += 1
     refreshStats()
     questPhase = 'idle'
@@ -4688,6 +4689,171 @@ function handleHookEvent(payload: any) {
 
 setInterval(pollHookEvents, 500)
 void pollHookEvents()
+
+// ────────────────────────────────────────────
+// Minimap, quest log history, achievement badges
+// ────────────────────────────────────────────
+
+const minimapEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-minimap'
+  el.innerHTML = `<div class="pag-minimap-label">map</div><canvas width="160" height="160"></canvas>`
+  document.body.appendChild(el)
+  return el
+})()
+const minimapCanvas = minimapEl.querySelector('canvas') as HTMLCanvasElement
+const minimapCtx = minimapCanvas.getContext('2d')!
+
+function drawMinimap() {
+  const w = minimapCanvas.width
+  const h = minimapCanvas.height
+  // floor world: 10x10 centered, walls at ±5
+  // map world coord (-5..5) → canvas pixel (8..152)
+  const PAD = 8
+  const SCALE = (w - PAD * 2) / 10
+  const wx = (x: number) => PAD + (x + 5) * SCALE
+  const wz = (z: number) => PAD + (z + 5) * SCALE
+
+  minimapCtx.clearRect(0, 0, w, h)
+  // Floor
+  minimapCtx.fillStyle = '#3a2820'
+  minimapCtx.fillRect(wx(-5), wz(-5), 10 * SCALE, 10 * SCALE)
+  // Walls
+  minimapCtx.strokeStyle = '#6a5040'
+  minimapCtx.lineWidth = 2
+  minimapCtx.strokeRect(wx(-5), wz(-5), 10 * SCALE, 10 * SCALE)
+
+  // Landmarks (colored dots)
+  const lmColors: Record<string, string> = {
+    fireplace: '#ff6a30',
+    'quest-board': '#ffd870',
+    door: '#8a6040',
+    workbench: '#a0a0a0',
+    library: '#a06030',
+    dummy: '#c04040',
+    dungeon: '#000000',
+    'save-crystal': '#60c0e0',
+    tent: '#6b3a1a',
+    'cooking-pot': '#aa8030',
+    bunkbed: '#a04040',
+  }
+  for (const lm of Agent.landmarks) {
+    const color = lmColors[lm.name] ?? '#888'
+    minimapCtx.fillStyle = color
+    minimapCtx.beginPath()
+    minimapCtx.arc(wx(lm.position.x), wz(lm.position.z), 3, 0, Math.PI * 2)
+    minimapCtx.fill()
+  }
+
+  // Agents
+  for (const a of Agent.all) {
+    if (!a.sprite.visible) continue
+    if (a.name.startsWith('npc-')) {
+      minimapCtx.fillStyle = '#80c0c0'
+    } else if (a.name.startsWith('task-')) {
+      minimapCtx.fillStyle = '#80ff80'
+    } else if (/^[a-z0-9]{6,}-(main|archer|healer|mage)$/.test(a.name)) {
+      minimapCtx.fillStyle = '#c060ff'
+    } else {
+      minimapCtx.fillStyle = '#fff8e8'
+    }
+    minimapCtx.beginPath()
+    minimapCtx.arc(wx(a.sprite.position.x), wz(a.sprite.position.z), 2, 0, Math.PI * 2)
+    minimapCtx.fill()
+  }
+
+  // Boss / Slime King / Slime — red
+  if (activeBoss && activeBoss.state === 'alive') {
+    minimapCtx.fillStyle = '#ff3030'
+    minimapCtx.beginPath()
+    minimapCtx.arc(wx(activeBoss.sprite.position.x), wz(activeBoss.sprite.position.z), 5, 0, Math.PI * 2)
+    minimapCtx.fill()
+  }
+  if (activeSlimeKing && activeSlimeKing.state === 'alive') {
+    minimapCtx.fillStyle = '#3060ff'
+    minimapCtx.beginPath()
+    minimapCtx.arc(wx(activeSlimeKing.sprite.position.x), wz(activeSlimeKing.sprite.position.z), 5, 0, Math.PI * 2)
+    minimapCtx.fill()
+  }
+  if (activeSlime && activeSlime.state === 'alive') {
+    minimapCtx.fillStyle = '#a040ff'
+    minimapCtx.beginPath()
+    minimapCtx.arc(wx(activeSlime.position.x), wz(activeSlime.position.z), 3, 0, Math.PI * 2)
+    minimapCtx.fill()
+  }
+  for (const m of minionSlimes) {
+    if (m.state !== 'alive') continue
+    minimapCtx.fillStyle = '#a040ff'
+    minimapCtx.beginPath()
+    minimapCtx.arc(wx(m.position.x), wz(m.position.z), 1.5, 0, Math.PI * 2)
+    minimapCtx.fill()
+  }
+}
+setInterval(drawMinimap, 80)
+
+// Quest log history
+const questlogEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-questlog'
+  el.innerHTML = `<div class="pag-questlog-title">Quest Log</div><div class="pag-questlog-list"></div>`
+  document.body.appendChild(el)
+  return el
+})()
+const questlogListEl = questlogEl.querySelector('.pag-questlog-list') as HTMLDivElement
+const questlogEntries: { time: string; title: string }[] = []
+const QUESTLOG_MAX = 6
+function logCompletedQuest(title: string) {
+  const t = new Date()
+  const ts = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`
+  questlogEntries.unshift({ time: ts, title })
+  if (questlogEntries.length > QUESTLOG_MAX) questlogEntries.pop()
+  questlogListEl.innerHTML = questlogEntries
+    .map((e) => `<div class="pag-questlog-row"><span class="pag-questlog-time">${e.time}</span><span class="pag-questlog-name">✓ ${e.title}</span></div>`)
+    .join('')
+}
+
+// Achievement badges
+interface Achievement {
+  id: string
+  title: string
+  check: () => boolean
+}
+const ACHIEVEMENTS: Achievement[] = [
+  { id: 'first-blood',   title: 'First Blood — defeat any boss',         check: () => stats.bosses >= 1 },
+  { id: 'boss-slayer',   title: 'Boss Slayer — 5 bosses defeated',       check: () => stats.bosses >= 5 },
+  { id: 'dragonbane',    title: 'Dragonbane — 10 bosses defeated',       check: () => stats.bosses >= 10 },
+  { id: 'pest-control',  title: 'Pest Control — 10 slimes',              check: () => stats.slimes >= 10 },
+  { id: 'exterminator',  title: 'Exterminator — 50 slimes',              check: () => stats.slimes >= 50 },
+  { id: 'questkeeper',   title: 'Questkeeper — 5 quests done',           check: () => stats.quests >= 5 },
+  { id: 'hoarder',       title: 'Hoarder — 20 treasures claimed',        check: () => stats.treasures >= 20 },
+  { id: 'leveler',       title: 'Leveler — 10 level ups',                check: () => stats.levelUps >= 10 },
+  { id: 'minion-mash',   title: 'Minion Mash — 30 minions',              check: () => stats.minions >= 30 },
+  { id: 'survivor',      title: 'Survivor — 100 events received',        check: () => totalEvents >= 100 },
+]
+const achievementsEarned = new Set<string>()
+const achievementEl = (() => {
+  const el = document.createElement('div')
+  el.id = 'pag-achievement'
+  el.innerHTML = `<div class="pag-ach-title">★ ACHIEVEMENT ★</div><div class="pag-ach-name" data-name>—</div>`
+  document.body.appendChild(el)
+  return el
+})()
+function showAchievement(title: string) {
+  achievementEl.querySelector<HTMLDivElement>('[data-name]')!.textContent = title
+  achievementEl.classList.add('show')
+  setTimeout(() => achievementEl.classList.remove('show'), 3500)
+  pushLog(`🏆 achievement: ${title}`, 'spawn')
+}
+function checkAchievements() {
+  for (const a of ACHIEVEMENTS) {
+    if (achievementsEarned.has(a.id)) continue
+    if (a.check()) {
+      achievementsEarned.add(a.id)
+      showAchievement(a.title)
+    }
+  }
+}
+setInterval(checkAchievements, 1500)
 
 pushLog('pag ready', 'idle')
 animate()
